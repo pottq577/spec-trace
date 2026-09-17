@@ -89,16 +89,21 @@ MVP는 특정 모델 API를 필수로 사용하지 않는다. ChatGPT, Codex, �
 
 이 문서까지 원문 수집과 변경 분석 실행 계약을 완료했다.
 
-## 다음 단계는 애플리케이션 아키텍처다
+## MVP 애플리케이션 아키텍처를 확정했다
 
-이후 설계는 처리 계약을 구현 가능한 구조로 내린다. 순서는 다음과 같다:
+[MVP 애플리케이션 아키텍처](../architecture/mvp-architecture.md)는 Python 3.12 이상, SQLite, local CLI, 하나의 watch process를 첫 구현 구조로 사용한다. 기획자는 Notion만 사용하고 개발자는 기존 ChatGPT와 Codex를 file 기반 analysis contract로 연결한다.
 
-1. 애플리케이션 아키텍처와 실행 경계
-2. 저장소와 데이터베이스 스키마
-3. 개발자 검토 등록 인터페이스
-4. DevFlow 연동 계약
-5. MVP end-to-end acceptance scenario
-6. 구현 계획
+MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하지 않는다.
+
+## 다음 단계는 저장 모델과 개발자 인터페이스다
+
+이후 순서는 다음과 같다:
+
+1. SQLite schema와 transaction 경계
+2. 개발자 검토 등록 CLI
+3. DevFlow 연동 계약
+4. MVP end-to-end acceptance scenario
+5. 구현 계획
 
 기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
 
