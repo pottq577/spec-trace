@@ -8,7 +8,8 @@ status: "Draft"
 
 # 검토와 결정의 상태는 어떻게 바뀌는가
 
-이 문서는 [도메인 모델](./domain-model.md)의 상태와 전이 규칙을 정의한다. [문서 계획](../00_INDEX.md#문서-계획)에 따라 시스템 내부 상태를 먼저 확정하고, Notion에서 어떤 상태명으로 보여줄지는 후속 Notion I/O 계약에서 정의한다.
+이 문서는 [도메인 모델](./domain-model.md)의 상태와 전이 규칙을 정의한다.
+[문서 계획](../00_INDEX.md#문서-계획)에 따라 내부 상태를 고정하며, Notion에 표시할 업무 상태와 답변 수집 방식은 [Notion 검토 결과 계약](../integration/notion-review-contract.md)을 따른다.
 
 ## 상태 모델 원칙
 
@@ -26,7 +27,7 @@ status: "Draft"
 
 `ReviewCycle`은 다음 상태를 사용한다:
 
-- `PENDING`: 검토 대상 Snapshot을 확보했지만 검토를 시작하지 않음
+- `PENDING`: 검토 대상 `PlanningDocumentSnapshot`을 확보했지만 검토를 시작하지 않음
 - `REVIEWING`: 코드, 정책, 관련 문서와 대조하는 중
 - `AWAITING_PLANNER`: 미해결 `PLANNER` Finding이 있어 기획자 답변을 기다림
 - `REVERIFYING`: 기획자 답변이나 변경 영향을 다시 검증하는 중
@@ -47,7 +48,8 @@ stateDiagram-v2
     COMPLETED --> SUPERSEDED
 ```
 
-`REVIEWING`에서 개발자 결정만 남아 있으면 `AWAITING_PLANNER`를 거치지 않는다. 새 기획 Snapshot이 발생하면 기존 완료 ReviewCycle은 보존하고 새 `CHANGE` ReviewCycle을 만든다.
+`REVIEWING`에서 개발자 결정만 남아 있으면 `AWAITING_PLANNER`를 거치지 않는다.
+새 `PlanningDocumentSnapshot`이 발생하면 기존 완료 ReviewCycle은 보존하고 새 `CHANGE` ReviewCycle을 만든다.
 
 ## `Finding` 상태
 
@@ -139,7 +141,7 @@ Blocker가 `ACTIVE`여도 `BlockedScope` 밖의 작업은 계속할 수 있다. 
 
 ## 재개와 변경 규칙
 
-개발 중 신규 `SourceSnapshot`이 생기면 기존 상태를 일괄 초기화하지 않는다.
+개발 중 신규 `PlanningDocumentSnapshot`이 생기면 기존 상태를 일괄 초기화하지 않는다.
 
 - 물리적 내용이 같으면 새 변경 검토를 만들지 않는다
 - 의미 변화가 없으면 기존 Decision과 Finding을 유지한다

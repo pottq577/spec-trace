@@ -8,13 +8,19 @@ status: "Draft"
 
 # 현재 단계에서 무엇을 확정하고 무엇을 후속 설계로 남기는가
 
-이 문서는 현재 설계 단계에서 확정한 내부 모델과 다음 단계로 넘기는 구현 계약을 구분한다. [문서 계획](../00_INDEX.md#문서-계획)의 상세 설계 범위를 관리하는 기준 문서다.
+이 문서는 현재까지 확정한 업무 모델과 Notion 입출력 계약을 정리하고 다음 상세 설계 경계를 정의한다.
+[문서 계획](../00_INDEX.md#문서-계획)의 현재 완료 지점을 판단하는 기준 문서다.
 
-## 현재 단계에서 확정한 내부 모델
+## 내부 도메인과 추적 모델을 확정했다
 
-Notion I/O 계약에 들어가기 전에 다음 개념과 관계를 확정한다:
+현재 단계에서 다음 내부 개념과 관계를 확정한다:
 
-- `PlanningDocument`와 불변 `SourceSnapshot`
+- Notion 데이터베이스 행 페이지를 기준으로 한 `PlanningDocument`
+- ROOT와 COMPOSED_CHILD `SourcePage`
+- 실제 페이지의 `SourcePageSnapshot`
+- 기획 전체 버전인 `PlanningDocumentSnapshot`
+- 외부 페이지 연결인 `SourceReference`
+- 개발자 작성 문서인 `DerivedArtifact`
 - `ReviewCycle`과 `Finding`
 - `finding_type`, `decision_owner`, `blocking`의 독립 분류
 - 개발자 Decision과 기획자 Decision
@@ -22,58 +28,66 @@ Notion I/O 계약에 들어가기 전에 다음 개념과 관계를 확정한다
 - `Blocker`와 복수 `BlockedScope`
 - `FinalSpec`과 불변 `FinalSpecRevision`
 - `ChangeSet`, `ChangeItem`, `ImpactLink`
-- `EvidenceRef`와 commit SHA 기반 코드 근거
-- `ImplementationRef`를 통한 최종설계와 실제 구현 연결
+- EvidenceRef와 commit SHA 기반 코드 근거
+- ImplementationRef를 통한 최종설계와 실제 구현 연결
 - 객체별 상태와 재개, 대체, 무효화 규칙
 
 세부 정의는 [도메인 모델](./domain-model.md), [상태 모델](./state-model.md), [추적 모델](./traceability-model.md)을 따른다.
 
-## 다음 단계에서 확정할 Notion I/O 계약
+## Notion 입출력 계약을 확정했다
 
-다음 상세 설계는 기획자의 기존 작업방식을 유지하면서 내부 모델을 Notion과 연결하는 계약을 정의한다:
+기획자의 기존 Notion 작성 방식을 유지하면서 내부 모델과 Notion을 연결하는 규칙을 다음 문서에서 확정한다:
 
-- 신규 기획 원문을 어떤 Notion 단위로 식별하는가
-- 기획 원문을 언제 Snapshot으로 수집하는가
-- 같은 전문 재등록과 실제 변경을 어떻게 구분하는가
-- 개발 검토 결과를 기존 기획 페이지의 어디에 연결하는가
-- 같은 ReviewCycle 결과를 재실행할 때 생성과 갱신을 어떻게 구분하는가
-- Open Question과 Blocker를 어떤 구조로 표시하는가
-- 기획자가 답변을 작성할 위치와 형식은 무엇인가
-- 답변 수정 시 새 `PlannerAnswer`를 어떻게 식별하는가
-- 시스템 생성 영역과 기획자 작성 영역을 어떻게 구분하는가
-- 중복 실행 시 idempotency를 어떻게 보장하는가
+- [Notion 원문 계약](../integration/notion-source-contract.md): 데이터베이스 행 식별, 하위 페이지 재귀 수집, Snapshot, 로컬 미러와 DerivedArtifact 분리
+- [Notion 검토 결과 계약](../integration/notion-review-contract.md): 개발 검토 페이지, 시스템 소유 영역, answer slot, PlannerAnswer 수집
+- [Notion 동기화 규칙](../integration/notion-sync-rules.md): idempotency, 부분 실패, 삭제와 이동, 자기 변경 루프 방지, reconcile
 
-이 계약을 확정하기 전에는 Notion API 호출 방식이나 페이지 템플릿을 구현 기준으로 고정하지 않는다.
+이 계약에 따라 PlanningDocument 하나는 Notion ROOT 페이지 하나와 그 하위 COMPOSED_CHILD 트리를 원문으로 가진다. 다른 기존 페이지 링크는 SourceReference로 처리하고 시스템 출력은 원문에서 제외한다.
 
-## Notion I/O 이후의 상세 설계
+## 다음 단계는 원문 수집과 변경 분석 실행 설계다
 
-Notion 계약이 확정된 다음 다음 구현 사항을 순서대로 설계한다:
+다음 상세 설계에서는 이미 확정한 계약을 실제 처리 파이프라인으로 내린다. 순서는 다음과 같다:
 
-1. 변경 감지와 Source Diff 구현
-2. 시스템 아키텍처와 실행 경계
-3. 저장소와 데이터베이스 스키마
-4. 검토 명세서 등록 인터페이스
-5. DevFlow 연동 계약
-6. MVP acceptance scenario와 검증 전략
+1. Notion source collector의 실행 경계와 수집 주기
+2. Snapshot canonicalization과 hash 계산 알고리즘
+3. 변경 감지와 ChangeSet 생성 조건
+4. Source Diff 분석 입력과 출력 schema
+5. Impact Analysis 입력과 출력 schema
+6. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
+7. 재시도, rate limit, 오류 분류
 
-의미 기반 분석에 사용할 모델이나 프롬프트 세부 구현은 변경 감지 설계에서 결정한다.
+이 단계에서는 아직 데이터베이스 테이블이나 배포 구조를 확정하지 않는다. 처리 계약이 고정된 뒤 애플리케이션 아키텍처와 저장 모델을 설계한다.
 
-## 제품의 완료 기준
+## 이후 상세 설계 순서를 고정한다
+
+원문 수집과 변경 분석 실행 설계 이후에는 다음 순서로 진행한다:
+
+1. 애플리케이션 아키텍처와 실행 경계
+2. 저장소와 데이터베이스 스키마
+3. 개발자 검토 등록 인터페이스
+4. DevFlow 연동 계약
+5. MVP end-to-end acceptance scenario
+6. 구현 계획
+
+기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
+
+## 제품 완료 기준은 추적성과 업무 연속성을 함께 만족해야 한다
 
 이 시스템은 다음 조건을 만족해야 한다:
 
 - 기획자는 기존 Notion 작성 방식을 유지한다
+- 데이터베이스 행 페이지와 `/페이지` 하위 페이지를 하나의 논리 기획으로 추적한다
+- 로컬 분석 문서 변경을 기획 변경으로 오인하지 않는다
 - 개발자는 신규 또는 변경된 기획을 놓치지 않는다
-- 개발자는 기획의 의미 변경을 이전 원문과 비교할 수 있다
+- 개발자는 의미 변경을 이전 PlanningDocumentSnapshot과 비교할 수 있다
 - 개발자는 현재 코드와 정책에 대한 영향을 확인할 수 있다
 - 기술적 결정은 근거와 함께 개발자가 확정할 수 있다
 - 제품 결정은 충분한 맥락과 선택지를 포함해 기획자에게 전달된다
-- Blocker는 복수 `BlockedScope`와 함께 관리할 수 있다
-- Blocker가 있어도 Scope 밖의 작업은 계속할 수 있다
-- 기획자는 Notion에서 자신이 확인하거나 결정할 항목을 바로 파악할 수 있다
-- 기획자 답변은 개발자가 재검증한 뒤 Decision으로 채택된다
-- 변경된 답변과 Decision의 과거 이력을 보존한다
-- 최종설계 Revision은 반영한 원문과 Decision을 역추적할 수 있다
-- 최종설계서는 DevFlow의 구현 기준으로 사용된다
-- 개발 중 기획 변경은 원문 변경과 구현 영향을 분리해 추적한다
+- Blocker가 있어도 BlockedScope 밖의 작업은 계속할 수 있다
+- 기획자는 ROOT 아래 `개발 검토` 페이지에서 자신의 할 일을 파악한다
+- 기획자 답변 수정 이력을 PlannerAnswer로 보존한다
+- 기획자 답변은 개발자가 재검증한 뒤 Decision으로 채택한다
+- FinalSpecRevision은 반영한 원문 Snapshot과 Decision을 역추적할 수 있다
 - 실제 구현 commit에서 최종설계와 결정 근거까지 역추적할 수 있다
+- 시스템 출력 변경이 원문 변경을 다시 발생시키는 동기화 루프가 없다
+- 중복 실행과 부분 실패 후에도 같은 내부 상태로 수렴한다

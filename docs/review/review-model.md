@@ -8,9 +8,10 @@ status: "Draft"
 
 # 기획 검토 결과를 어떻게 분류하고 결정할 것인가
 
-이 문서는 기획 검토에서 발견한 문제를 어떤 기준으로 분류하고, 누가 결정하며, 어떤 범위가 막히는지 정의한다. 상세 객체와 상태는 [도메인 모델](../design/domain-model.md)과 [상태 모델](../design/state-model.md)을 따른다.
+이 문서는 기획 검토에서 발견한 문제를 어떤 기준으로 분류하고, 누가 결정하며, 어떤 범위가 막히는지 정의한다.
+[문서 계획](../00_INDEX.md#문서-계획)에 따라 검토 책임을 고정하며, 상세 객체와 상태는 [도메인 모델](../design/domain-model.md)과 [상태 모델](../design/state-model.md)을 따른다.
 
-## 검토 기준
+## 어떤 정보를 기준으로 기획을 검토하는가
 
 개발자는 현재 기획 원문을 다음 정보와 대조한다:
 
@@ -63,7 +64,7 @@ status: "Draft"
 
 - 기존 도메인 모델 재사용
 - 이미 존재하는 정책과의 통합 방식
-- API 구조
+- 응용 프로그래밍 인터페이스(API) 구조
 - 객체 구조
 - 트랜잭션 범위
 - 기존 아키텍처 패턴 적용
@@ -80,7 +81,7 @@ status: "Draft"
 6. 최종 채택안
 7. 기획 원문과 최종 구현 기준의 차이
 
-기획자는 개발 결정을 승인하지 않는다. Notion에서는 개발자가 어떤 근거로 어떤 결정을 채택했는지 확인한다.
+기획자는 개발 결정을 승인하지 않는다. Notion의 `개발 검토` 페이지에서 판단 근거와 채택 결과를 확인한다.
 
 ## 기획자가 결정하는 Open Question
 
@@ -115,7 +116,7 @@ Blocker는 다음 상황에서 생성할 수 있다:
 
 - `FEATURE`: 해당 기능의 설계나 구현 전체
 - `DESIGN`: 특정 정책, 데이터 구조, 계산 규칙
-- `IMPLEMENTATION`: 특정 API, 계산 로직, 저장 로직
+- `IMPLEMENTATION`: 특정 인터페이스, 계산 로직, 저장 로직
 - `WORK_ITEM`: 테스트, 마이그레이션, 연동 같은 후속 작업
 
 각 Blocker에는 다음 정보를 함께 남긴다:
@@ -136,9 +137,16 @@ Blocker는 다음 상황에서 생성할 수 있다:
 
 검토와 결정의 근거는 변경 가능한 최신 상태가 아니라 검토 당시 기준점에 연결한다.
 
-- 기획 근거는 특정 `SourceSnapshot`을 참조한다
+- 기획 근거는 특정 `SourcePageSnapshot`의 원문 위치와 해당 `PlanningDocumentSnapshot`을 참조한다
 - 코드 근거는 repository, commit SHA, path를 포함한다
-- 기존 정책 근거는 해당 정책을 확정한 Decision이나 최종설계 Revision을 참조한다
+- 기존 정책 근거는 해당 정책을 확정한 Decision이나 FinalSpecRevision을 참조한다
+- 개발자가 만든 분석 문서를 근거로 쓰면 `DerivedArtifact`를 명시적으로 참조한다
 - 변경된 결정은 이전 Decision을 덮어쓰지 않고 supersede 관계로 보존한다
 
 이 구조를 사용하면 현재 구현이 최초 기획 원문과 달라진 이유를 이후에도 역추적할 수 있다.
+
+## Notion 출력은 검토 모델의 projection이다
+
+검토 객체의 정식 상태와 이력은 내부 모델이 보존한다. Notion의 `개발 검토` 페이지는 현재 업무에 필요한 Decision, OpenQuestion, Blocker만 투영한다.
+
+기획자 답변 수집과 시스템 소유 영역의 동기화 규칙은 [Notion 검토 결과 계약](../integration/notion-review-contract.md)을 따른다.

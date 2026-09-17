@@ -8,19 +8,20 @@ status: "Draft"
 
 # 기획 검토부터 개발까지 업무는 어떻게 진행되는가
 
-이 문서는 신규 기획 검토와 개발 중 변경 검토가 공유하는 전체 업무 흐름을 설명한다. 내부 상태의 정확한 값과 전이 규칙은 [상태 모델](../design/state-model.md)을 따른다.
+이 문서는 신규 기획 검토와 개발 중 변경 검토가 공유하는 전체 업무 흐름을 설명한다.
+[문서 계획](../00_INDEX.md#문서-계획)에 따라 공통 절차를 요약하며, 내부 상태의 정확한 값과 전이 규칙은 [상태 모델](../design/state-model.md)을 따른다.
 
 ## 전체 업무 흐름
 
 신규 기획서와 개발 중 변경은 같은 검토 구조를 사용한다. 변경이 발생하면 실제 변경점과 영향받은 결정부터 다시 검토한다.
 
 1. 기획자가 Notion에 기획 원문 작성
-2. 개발자가 로컬 작업본 확보
+2. 시스템이 Notion 원문과 하위 페이지를 수집해 PlanningDocumentSnapshot 확정
 3. 코드, 정책, 선행 문서와 대조
 4. 검토 명세서 작성
 5. Finding의 유형, 결정 주체, blocking 여부 분류
 6. 개발 결정, Open Question, Blocker 처리
-7. 기획자용 개발 검토를 Notion에 제공
+7. ROOT 아래 `개발 검토` 페이지에 기획자용 결과 제공
 8. 기획자 답변과 개발자 재검증
 9. 최종설계서 Revision 확정
 10. DevFlow로 개발
@@ -53,9 +54,9 @@ status: "Draft"
 - **재검증 중**: `ReviewCycle=REVERIFYING`
 - **검토 완료**: `ReviewCycle=COMPLETED`
 - **개발 중**: 완료된 최종설계 Revision을 기준으로 DevFlow 작업이 진행 중
-- **변경 재검토**: 신규 Snapshot으로 `CHANGE` ReviewCycle이 생성됨
+- **변경 재검토**: 신규 `PlanningDocumentSnapshot`으로 `CHANGE` ReviewCycle이 생성됨
 
-기획자용 상태 문구와 표시 방법은 후속 Notion I/O 계약에서 정한다. 내부 상태값을 그대로 노출할 필요는 없다.
+기획자용 상태 문구와 표시 위치는 [Notion 검토 결과 계약](../integration/notion-review-contract.md)을 따른다. 내부 상태값을 그대로 노출하지 않는다.
 
 ## 변경 시 기존 결과를 유지한다
 

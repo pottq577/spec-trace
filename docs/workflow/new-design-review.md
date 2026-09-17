@@ -8,7 +8,8 @@ status: "Draft"
 
 # 신규 설계서를 어떻게 검토하고 개발 기준으로 확정하는가
 
-이 문서는 신규 기획 원문을 처음 검토해 `Finding`과 Decision을 확정하고, 첫 `FinalSpecRevision`을 만드는 업무 순서를 설명한다. 객체와 상태 규칙은 [도메인 모델](../design/domain-model.md)과 [상태 모델](../design/state-model.md)을 따른다.
+이 문서는 신규 기획 원문을 처음 검토해 `Finding`과 Decision을 확정하고, 첫 `FinalSpecRevision`을 만드는 업무 순서를 설명한다.
+[문서 계획](../00_INDEX.md#문서-계획)에 따라 신규 검토 절차를 다루며, 객체와 상태 규칙은 [도메인 모델](../design/domain-model.md)과 [상태 모델](../design/state-model.md)을 따른다.
 
 ## 업무 시나리오 1: 신규 설계서를 검토하고 개발한다
 
@@ -22,17 +23,17 @@ status: "Draft"
 
 기획자는 별도의 검토 양식이나 변경 이력을 작성하지 않는다.
 
-### 2. 개발자가 설계서를 로컬에 확보한다
+### 2. 시스템이 기획 원문을 수집하고 로컬 미러를 만든다
 
-**Actor:** 개발자
+**Actor:** 시스템 + 개발자
 
-개발자는 Notion 설계서를 Markdown 작업본으로 저장한다. 시스템은 이 원문을 `SourceSnapshot`으로 식별할 수 있어야 한다.
+시스템은 Notion 데이터베이스 행 페이지를 `PlanningDocument`로 식별하고 ROOT와 모든 COMPOSED_CHILD를 재귀 수집한다. 일관된 수집이 끝나면 `PlanningDocumentSnapshot`을 확정한다.
 
-Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 단계인 Notion I/O 설계에서 결정한다.
+개발자가 로컬 Markdown으로 검토할 수 있도록 원문 미러와 `.spec-trace/source-manifest.json` mapping을 생성한다. 같은 디렉터리에 있는 개발자 작성 문서는 `DerivedArtifact`로 분리한다.
 
 ### 3. 개발자가 AI와 함께 설계서를 검토한다
 
-**Actor:** 개발자 + AI
+**Actor:** 개발자 + 인공지능(AI)
 
 개발자는 다음 자료를 함께 검토한다:
 
@@ -95,7 +96,7 @@ Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 �
 - **Blocker**: 주 15시간 근무자의 공휴일 처리 방식 미확정
 - **BlockedScope**: `IMPLEMENTATION / weekly-standard-time-calculation`
 - **막힌 범위**: 주간 기준시간 계산 로직 설계 및 구현
-- **현재 진행 가능**: 근무유형 조회 API, 기본 저장 구조
+- **현재 진행 가능**: 근무유형 조회 인터페이스, 기본 저장 구조
 - **재개 조건**: 공휴일 포함 시 주간 기준시간 정책 확정
 
 하나의 Blocker가 여러 범위를 막으면 `BlockedScope`를 여러 개 만든다. Scope 밖의 작업은 계속 진행한다.
@@ -108,7 +109,7 @@ Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 �
 
 검토 명세서는 다음 정보를 연결한다:
 
-- `SourceSnapshot`
+- `PlanningDocumentSnapshot`과 관련 `SourcePageSnapshot`
 - Finding과 `EvidenceRef`
 - 개발 Decision
 - Open Question
@@ -120,7 +121,7 @@ Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 �
 
 **Actor:** 시스템
 
-시스템은 기존 설계서와 연결된 위치에 기획자용 결과를 작성한다.
+시스템은 ROOT 기획 페이지 아래의 시스템 소유 `개발 검토` 페이지에 결과를 작성한다.
 
 기획자는 다음 정보만 확인한다:
 
@@ -130,7 +131,7 @@ Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 �
 - Blocker
 - Blocker가 막고 있는 업무 범위
 
-실제 페이지 위치와 생성·갱신 계약은 후속 Notion I/O 설계에서 정한다.
+페이지 구조와 answer slot 소유권은 [Notion 검토 결과 계약](../integration/notion-review-contract.md)을 따른다.
 
 ### 9. 기획자가 필요한 항목에 답변한다
 
@@ -138,7 +139,7 @@ Notion에서 로컬로 가져오는 방식과 Snapshot 수집 계약은 다음 �
 
 기획자는 개발 결정은 확인하고, 제품 결정이 필요한 Open Question에 답변한다.
 
-기획자 답변은 `PlannerAnswer`로 보존한다. 답변 자체를 확정 Decision으로 취급하지 않는다.
+기획자는 OpenQuestion의 `답변` toggle 안에 답변한다. 시스템은 내용 hash가 바뀌면 새 `PlannerAnswer`로 보존하며, 답변 자체를 확정 Decision으로 취급하지 않는다.
 
 ### 10. 개발자가 기획자 답변을 재검증한다
 
@@ -158,13 +159,13 @@ Blocker의 재개 조건을 충족하면 해당 Blocker를 해결하고 `Blocked
 
 Revision은 다음 정보를 고정한다:
 
-- 반영한 `SourceSnapshot`
+- 반영한 `PlanningDocumentSnapshot`
 - 개발자 Decision
 - 기획자 Decision
 - 기존 정책과 코드베이스 제약
 - 확정된 최종설계 내용
 
-기획 원문 Snapshot은 그대로 보존한다.
+기획 원문을 구성한 SourcePageSnapshot과 PlanningDocumentSnapshot은 그대로 보존한다.
 
 ### 12. DevFlow로 개발한다
 

@@ -8,7 +8,8 @@ status: "Draft"
 
 # 개발 중 설계서가 변경되면 어떻게 대응하는가
 
-이 문서는 개발 중 새 기획 원문이 등록됐을 때 Snapshot 차이, 의미 변경, 기존 결정, 실제 구현 영향을 다시 검토하는 업무 순서를 설명한다. 변경 링크와 판정은 [추적 모델](../design/traceability-model.md)을 따른다.
+이 문서는 개발 중 새 기획 원문이 등록됐을 때 Snapshot 차이, 의미 변경, 기존 결정, 실제 구현 영향을 다시 검토하는 업무 순서를 설명한다.
+[문서 계획](../00_INDEX.md#문서-계획)에 따라 변경 대응 절차를 다루며, 변경 링크와 판정은 [추적 모델](../design/traceability-model.md)을 따른다.
 
 ## 업무 시나리오 2: 개발 중 기획서가 수정된다
 
@@ -26,20 +27,20 @@ status: "Draft"
 
 **Actor:** 시스템
 
-시스템은 현재 개발 기준을 만든 `SourceSnapshot` 이후 새로운 원문을 감지하고 신규 Snapshot 후보를 만든다.
+시스템은 현재 개발 기준에 연결된 `PlanningDocumentSnapshot` 이후 Notion 원문 변화를 확인한다. ROOT와 COMPOSED_CHILD를 다시 수집해 `aggregate_hash`가 달라질 때만 새 PlanningDocumentSnapshot을 확정한다.
 
-동일한 `content_hash`면 변경 검토를 만들지 않는다. 구체적인 Notion 감지와 수집 방식은 후속 Notion I/O 계약에서 결정한다.
+시스템이 생성한 `개발 검토` 페이지, 기획자 answer slot, 로컬 DerivedArtifact 변경은 원문 변경에서 제외한다.
 
 ### 3. 이전 원문과 신규 원문의 의미 변화를 확인한다
 
-**Actor:** 시스템 + 개발자 + AI
+**Actor:** 시스템 + 개발자 + 인공지능(AI)
 
 첫 번째 비교는 기획자가 실제로 바꾼 내용을 찾기 위한 원문 변경 비교(Source Diff)다.
 
 비교 대상은 다음과 같다:
 
-- 기준 `SourceSnapshot`
-- 신규 `SourceSnapshot`
+- 기준 `PlanningDocumentSnapshot`
+- 신규 `PlanningDocumentSnapshot`
 
 변경 결과는 `ChangeSet`과 `ChangeItem`으로 관리한다. `ChangeItem`은 다음 유형 중 하나를 가진다:
 
@@ -58,7 +59,7 @@ status: "Draft"
 
 두 번째 비교는 신규 기획이 현재 구현 기준에 미치는 영향을 찾기 위한 영향 분석(Impact Analysis)이다.
 
-신규 Snapshot과 다음 대상을 비교한다:
+신규 PlanningDocumentSnapshot과 다음 대상을 비교한다:
 
 - 현재 `FinalSpecRevision`
 - 기존 Decision
@@ -66,6 +67,8 @@ status: "Draft"
 - 선행 작업
 - 관련 설계서
 - 이미 생성된 `ImplementationRef`
+
+다른 모니터링 PlanningDocument의 `SourceReference` 대상이 변경돼도 현재 원문 Snapshot을 자동 갱신하지 않는다. 시스템은 역참조 관계를 사용해 별도 Impact Analysis 후보를 만든다.
 
 각 영향은 `ImpactLink`로 연결하고 다음 중 하나로 판정한다:
 
@@ -125,7 +128,7 @@ status: "Draft"
 
 **Actor:** 시스템
 
-Notion에는 이번 변경으로 새로 발생하거나 다시 열린 항목을 중심으로 보여준다.
+ROOT 아래의 `개발 검토` 페이지에는 이번 변경으로 새로 발생하거나 다시 열린 항목을 중심으로 보여준다.
 
 ```markdown
 # 개발 검토
@@ -149,11 +152,11 @@ Notion에는 이번 변경으로 새로 발생하거나 다시 열린 항목을 
 
 ## Blocker
 
-- 막힌 범위: 기존 데이터 마이그레이션, 관련 수정 API
+- 막힌 범위: 기존 데이터 마이그레이션, 관련 수정 인터페이스
 - 현재 가능한 작업: 공통 조회 로직, 40시간 근무유형 구현
 ```
 
-실제 Notion 페이지 구조와 답변 위치는 후속 Notion I/O 계약에서 확정한다.
+출력 위치와 답변 입력 방식은 [Notion 검토 결과 계약](../integration/notion-review-contract.md)을 따른다.
 
 ### 9. 기획자 답변을 재검증한다
 
@@ -169,6 +172,6 @@ Notion에는 이번 변경으로 새로 발생하거나 다시 열린 항목을 
 
 변경으로 구현 기준이 달라지면 새 `FinalSpecRevision`을 만든다.
 
-새 Revision은 신규 Snapshot, 유지한 기존 Decision, 새 Decision을 모두 연결한다. DevFlow의 개발 기준도 새 Revision으로 변경한다.
+새 Revision은 신규 PlanningDocumentSnapshot, 유지한 기존 Decision, 새 Decision을 모두 연결한다. DevFlow의 개발 기준도 새 Revision으로 변경한다.
 
 이미 구현한 코드 수정이 필요하면 이후 `ImplementationRef`를 새 Revision에 연결해 변경 결과까지 추적한다.
