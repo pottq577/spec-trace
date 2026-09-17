@@ -77,12 +77,15 @@ status: "Draft"
 
 영향 후보는 `UNAFFECTED`, `REVIEW_REQUIRED`, `INVALIDATED`, `IMPLEMENTATION_CHANGE_REQUIRED` 중 하나를 제안한다. 후보 자체는 기존 객체 상태를 수정하지 않는다.
 
-## 다음 단계는 분석 후보 채택과 실행 오류 계약이다
+## 분석 후보 채택 계약을 확정했다
 
-남은 변경 분석 실행 설계는 다음 두 책임을 함께 닫는다:
+[분석 후보 채택](../analysis/adoption.md)은 AI와 외부 agent 결과를 `AnalysisProposal`로 보존하고 개발자 `ReviewAction`을 거친 결과만 도메인 이력으로 확정한다. Source Diff 채택은 `ChangeItem`, Impact 채택은 `ImpactLink`를 만든다.
 
-1. Source Diff와 Impact Analysis 후보의 개발자 검증·채택 인터페이스
-2. 재시도, rate limit, 오류 분류
+MVP는 특정 모델 API를 필수로 사용하지 않는다. ChatGPT, Codex, 규칙 기반 분석기의 구조화 결과를 같은 import 계약으로 처리한다.
+
+## 다음 단계는 실행 오류와 재시도 계약이다
+
+Notion 호출, 원문 수집, 분석 import, 저장, Notion projection의 실패 분류와 재시도 책임을 고정하면 변경 분석 실행 설계가 완료된다.
 
 ## 이후 상세 설계 순서를 고정한다
 
