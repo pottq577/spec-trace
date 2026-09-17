@@ -107,12 +107,13 @@ MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하�
 
 [DevFlow 연동](../integration/devflow-contract.md)은 `FinalSpecRevision`을 독립 handoff directory로 export하고 DevFlow의 PLAN, WORK, STATE를 직접 수정하지 않는다. 실제 구현은 immutable commit을 담은 receipt를 import해 `ImplementationRef`로 연결한다.
 
-## 다음 단계는 MVP acceptance와 구현 계획이다
+## MVP acceptance scenario를 확정했다
 
-이후 순서는 다음과 같다:
+[MVP acceptance](../mvp/acceptance.md)는 신규 기획 등록부터 PlannerAnswer, FinalSpec, DevFlow handoff, ImplementationRef, 개발 중 기획 변경, 장애 복구까지 시나리오 A부터 H로 고정한다.
 
-1. MVP end-to-end acceptance scenario
-2. 구현 계획
+## 다음 단계는 구현 계획과 실제 MVP 코드다
+
+다음 patch에서 acceptance를 구현 단위로 분해한 뒤 실제 Python MVP 구현 patch를 순서대로 만든다.
 
 기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
 
