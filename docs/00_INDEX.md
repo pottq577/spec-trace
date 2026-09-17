@@ -15,7 +15,7 @@ status: "Draft"
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
 - **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집 실행, 변경 감지, 변경 추적, 결정 근거, 후속 설계 범위
-- **현재 경계**: 분석 후보의 개발자 검증·채택 계약까지 확정
+- **현재 경계**: 원문 수집과 변경 분석의 오류·재시도 정책까지 확정
 - **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
@@ -56,6 +56,7 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 - [Notion 원문 수집 실행](./integration/notion-source-collection.md): 수집 주기, 이중 트리 검증, canonicalization, hash, Snapshot 확정 결과
 - [Notion 검토 결과 계약](./integration/notion-review-contract.md): ROOT 아래 `개발 검토` 페이지, answer slot, 시스템·기획자 소유권
 - [Notion 동기화 규칙](./integration/notion-sync-rules.md): idempotency, 부분 실패, 삭제와 이동, reconcile, 자기 변경 루프 방지
+- [연동 실패와 재시도](./integration/runtime-resilience.md): 중앙 rate limit, HTTP retry, 오류 분류, 재시작 복구
 
 ## 변경 분석 실행
 
@@ -79,4 +80,4 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 
 - [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 설계 단계는 오류 분류와 재시도·rate limit 실행 정책이다.
+현재 다음 설계 단계는 MVP 애플리케이션 아키텍처와 실행 경계다.
