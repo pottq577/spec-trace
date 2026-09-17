@@ -71,13 +71,18 @@ status: "Draft"
 
 `WORDING_ONLY`와 `IRRELEVANT`는 기본 영향 분석 대상에서 제외한다. Source Diff 자체는 기존 Decision이나 Finding 상태를 변경하지 않는다.
 
-## 다음 단계는 Impact Analysis 실행 계약이다
+## Impact Analysis 실행 계약을 확정했다
 
-남은 변경 분석 실행 설계는 다음 순서로 진행한다:
+[Impact Analysis 실행](../analysis/impact-analysis.md)은 채택된 `ChangeItem`을 현재 FinalSpecRevision, Decision, 코드, 구현, 관련 기획과 대조한다. 분석 시점의 code baseline을 commit SHA로 고정하고 확인 범위를 scope manifest로 남긴다.
 
-1. Impact Analysis 입력과 출력 schema
-2. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
-3. 재시도, rate limit, 오류 분류
+영향 후보는 `UNAFFECTED`, `REVIEW_REQUIRED`, `INVALIDATED`, `IMPLEMENTATION_CHANGE_REQUIRED` 중 하나를 제안한다. 후보 자체는 기존 객체 상태를 수정하지 않는다.
+
+## 다음 단계는 분석 후보 채택과 실행 오류 계약이다
+
+남은 변경 분석 실행 설계는 다음 두 책임을 함께 닫는다:
+
+1. Source Diff와 Impact Analysis 후보의 개발자 검증·채택 인터페이스
+2. 재시도, rate limit, 오류 분류
 
 ## 이후 상세 설계 순서를 고정한다
 
