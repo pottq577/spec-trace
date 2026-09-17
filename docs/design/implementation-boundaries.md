@@ -103,13 +103,16 @@ MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하�
 
 [개발자 CLI](../interface/developer-cli.md)는 source 등록부터 analysis export/import, proposal 채택, Decision, OpenQuestion, Blocker, FinalSpec 확정까지의 command surface를 고정한다. `REVIEW` proposal도 Source Diff와 Impact Analysis와 같은 개발자 채택 절차를 사용한다.
 
-## 다음 단계는 DevFlow handoff다
+## DevFlow handoff 계약을 확정했다
+
+[DevFlow 연동](../integration/devflow-contract.md)은 `FinalSpecRevision`을 독립 handoff directory로 export하고 DevFlow의 PLAN, WORK, STATE를 직접 수정하지 않는다. 실제 구현은 immutable commit을 담은 receipt를 import해 `ImplementationRef`로 연결한다.
+
+## 다음 단계는 MVP acceptance와 구현 계획이다
 
 이후 순서는 다음과 같다:
 
-1. DevFlow 연동 계약
-2. MVP end-to-end acceptance scenario
-3. 구현 계획
+1. MVP end-to-end acceptance scenario
+2. 구현 계획
 
 기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
 
