@@ -18,7 +18,7 @@ status: "Draft"
 
 - Source Diff proposal 채택 결과 → `ChangeItem`
 - Impact Analysis proposal 채택 결과 → `ImpactLink`
-- 검토 중 발견한 문제 채택 결과 → `Finding`
+- Review proposal 채택 결과 → `Finding`
 - 개발자가 결론까지 확정한 결과 → `Decision(owner=DEVELOPER)`
 
 ## AnalysisProposal은 생성 출처와 기준점을 고정한다
@@ -26,7 +26,7 @@ status: "Draft"
 proposal은 최소한 다음 값을 가진다:
 
 - `analysis_proposal_id`
-- `analysis_type`: `SOURCE_DIFF` 또는 `IMPACT`
+- `analysis_type`: `SOURCE_DIFF`, `IMPACT`, `REVIEW`
 - `subject_ref`: `change_set_id` 또는 분석 대상 참조
 - `input_snapshot_refs`
 - `code_baseline`, 사용하지 않으면 빈 값
