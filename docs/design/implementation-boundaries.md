@@ -95,15 +95,18 @@ MVP는 특정 모델 API를 필수로 사용하지 않는다. ChatGPT, Codex, �
 
 MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하지 않는다.
 
-## 다음 단계는 저장 모델과 개발자 인터페이스다
+## MVP 저장 모델을 확정했다
+
+[MVP 저장 schema](../storage/mvp-schema.md)는 SQLite와 content-addressed file store를 사용한다. Snapshot, 채택 결과, Decision, FinalSpecRevision을 불변 이력으로 보존하고 `pending_operations`로 process restart 이후 후속 작업을 재개한다.
+
+## 다음 단계는 개발자 CLI와 외부 연동이다
 
 이후 순서는 다음과 같다:
 
-1. SQLite schema와 transaction 경계
-2. 개발자 검토 등록 CLI
-3. DevFlow 연동 계약
-4. MVP end-to-end acceptance scenario
-5. 구현 계획
+1. 개발자 검토 등록 CLI
+2. DevFlow 연동 계약
+3. MVP end-to-end acceptance scenario
+4. 구현 계획
 
 기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
 

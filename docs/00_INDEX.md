@@ -15,7 +15,7 @@ status: "Draft"
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
 - **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집, 변경 분석, MVP 아키텍처, 결정 근거, 후속 설계 범위
-- **현재 경계**: local-first MVP 애플리케이션 아키텍처와 기술 기준까지 확정
+- **현재 경계**: MVP SQLite schema와 transaction 경계까지 확정
 - **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
@@ -79,6 +79,7 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 MVP 구현 구조 문서는 확정된 처리 계약을 실행 가능한 애플리케이션 구조로 내린다.
 
 - [MVP 애플리케이션 아키텍처](./architecture/mvp-architecture.md): Python CLI, SQLite, Notion·Git adapter, external agent contract, 실행 범위
+- [MVP 저장 schema](./storage/mvp-schema.md): SQLite table, content-addressed artifact, unique constraint, transaction, 복구 queue
 
 ## 후속 상세 설계
 
@@ -86,4 +87,4 @@ MVP 구현 구조 문서는 확정된 처리 계약을 실행 가능한 애플�
 
 - [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 설계 단계는 MVP 저장 schema와 transaction 경계다.
+현재 다음 설계 단계는 개발자 CLI와 검토 등록 인터페이스다.
