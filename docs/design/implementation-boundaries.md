@@ -8,7 +8,7 @@ status: "Draft"
 
 # 현재 단계에서 무엇을 확정하고 무엇을 후속 설계로 남기는가
 
-이 문서는 현재까지 확정한 업무 모델과 Notion 입출력 계약을 정리하고 다음 상세 설계 경계를 정의한다.
+이 문서는 현재까지 확정한 업무 모델, Notion 입출력 계약, 원문 수집 실행 계약을 정리하고 다음 상세 설계 경계를 정의한다.
 [문서 계획](../00_INDEX.md#문서-계획)의 현재 완료 지점을 판단하는 기준 문서다.
 
 ## 내부 도메인과 추적 모델을 확정했다
@@ -44,19 +44,32 @@ status: "Draft"
 
 이 계약에 따라 PlanningDocument 하나는 Notion ROOT 페이지 하나와 그 하위 COMPOSED_CHILD 트리를 원문으로 가진다. 다른 기존 페이지 링크는 SourceReference로 처리하고 시스템 출력은 원문에서 제외한다.
 
-## 다음 단계는 원문 수집과 변경 분석 실행 설계다
+## 원문 수집과 Snapshot 확정 실행 계약을 확정했다
 
-다음 상세 설계에서는 이미 확정한 계약을 실제 처리 파이프라인으로 내린다. 순서는 다음과 같다:
+[Notion 원문 수집 실행](../integration/notion-source-collection.md)은 원문 계약을 실제 처리 순서로 내린다. 현재 단계에서 다음 실행 결정을 확정한다:
 
-1. Notion source collector의 실행 경계와 수집 주기
-2. Snapshot canonicalization과 hash 계산 알고리즘
-3. 변경 감지와 ChangeSet 생성 조건
-4. Source Diff 분석 입력과 출력 schema
-5. Impact Analysis 입력과 출력 schema
-6. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
-7. 재시도, rate limit, 오류 분류
+- `PlanningDocument` 하나를 하나의 수집 실행 단위로 사용한다
+- MVP는 5분 폴링을 기본 수집 주기로 사용한다
+- 같은 기획 문서의 동시 수집을 직렬화한다
+- 시작 트리와 종료 트리를 비교해 수집 중 변경 여부를 검증한다
+- canonical content를 안정적으로 직렬화해 SHA-256 hash를 계산한다
+- `aggregate_hash`가 달라질 때만 새 `PlanningDocumentSnapshot`을 만든다
+- `UNCHANGED`, `SNAPSHOT_CREATED`, `SOURCE_UNSTABLE`, `SOURCE_UNAVAILABLE`, `COLLECTION_FAILED` 결과를 사용한다
+- 실패한 수집은 마지막 정상 Snapshot을 수정하지 않는다
 
-이 단계에서는 아직 데이터베이스 테이블이나 배포 구조를 확정하지 않는다. 처리 계약이 고정된 뒤 애플리케이션 아키텍처와 저장 모델을 설계한다.
+이 단계는 데이터베이스 테이블, 배포 구조, 작업 큐 구현을 정하지 않는다. 해당 기술 선택은 처리 계약이 끝난 뒤 애플리케이션 아키텍처에서 확정한다.
+
+## 다음 단계는 변경 감지와 변경 분석 실행 계약이다
+
+다음 patch부터 두 개의 안정적인 `PlanningDocumentSnapshot`을 입력으로 사용한다. 상세 설계 순서는 다음과 같다:
+
+1. 변경 감지와 `ChangeSet`, `ChangeItem` 생성 조건
+2. Source Diff 분석 입력과 출력 schema
+3. Impact Analysis 입력과 출력 schema
+4. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
+5. 재시도, rate limit, 오류 분류
+
+원문 수집기는 이 단계의 객체를 직접 만들지 않는다. Snapshot 확정 이후의 처리만 후속 분석 파이프라인이 담당한다.
 
 ## 이후 상세 설계 순서를 고정한다
 

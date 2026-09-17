@@ -14,9 +14,9 @@ status: "Draft"
 
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
-- **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 변경 추적, 결정 근거, 후속 설계 범위
-- **현재 경계**: Notion 입출력 계약까지 확정
-- **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 추적 구조 → 후속 상세 설계
+- **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집 실행, 변경 추적, 결정 근거, 후속 설계 범위
+- **현재 경계**: Notion 원문 수집과 Snapshot 확정 실행 계약까지 확정
+- **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
 
@@ -48,11 +48,12 @@ status: "Draft"
 - [상태 모델](./design/state-model.md): ReviewCycle, Finding, OpenQuestion, Decision, Blocker의 상태와 전이
 - [추적 모델](./design/traceability-model.md): PlanningDocumentSnapshot 변경, 영향 분석, 최종설계, 실제 구현의 연결 관계
 
-## Notion 입출력 계약
+## Notion 입출력과 원문 수집
 
-Notion 입출력 문서는 회사 기획서 구조를 내부 모델과 연결하는 입력, 출력, 동기화 규칙을 정의한다.
+Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고 안정적인 원문 Snapshot을 만드는 규칙을 정의한다.
 
 - [Notion 원문 계약](./integration/notion-source-contract.md): 데이터베이스 행 페이지, `/페이지` 하위 페이지, SourceReference, Snapshot, 로컬 미러 분류
+- [Notion 원문 수집 실행](./integration/notion-source-collection.md): 수집 주기, 이중 트리 검증, canonicalization, hash, Snapshot 확정 결과
 - [Notion 검토 결과 계약](./integration/notion-review-contract.md): ROOT 아래 `개발 검토` 페이지, answer slot, 시스템·기획자 소유권
 - [Notion 동기화 규칙](./integration/notion-sync-rules.md): idempotency, 부분 실패, 삭제와 이동, reconcile, 자기 변경 루프 방지
 
@@ -67,6 +68,6 @@ Notion 입출력 문서는 회사 기획서 구조를 내부 모델과 연결하
 
 후속 설계 문서는 현재 확정한 경계와 다음 설계 순서를 관리한다.
 
-- [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 입출력 계약, 다음 실행 설계 순서
+- [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 설계 단계는 원문 수집과 변경 분석 실행 설계다.
+현재 다음 설계 단계는 변경 감지와 `ChangeSet` 생성 실행 계약이다.
