@@ -15,7 +15,7 @@ status: "Draft"
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
 - **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집, 변경 분석, MVP 아키텍처, 결정 근거, 후속 설계 범위
-- **현재 경계**: 첫 MVP end-to-end acceptance scenario와 완료 gate까지 확정
+- **현재 경계**: 첫 MVP 구현 patch 순서와 자동 검증 gate까지 확정
 - **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
@@ -88,6 +88,7 @@ MVP 구현 구조 문서는 확정된 처리 계약을 실행 가능한 애플�
 MVP 검증 문서는 실제 업무 round trip과 완료 조건을 정의한다.
 
 - [MVP acceptance](./mvp/acceptance.md): 신규 검토, Notion 답변, FinalSpec, DevFlow 구현, 기획 변경, 복구 시나리오
+- [MVP 구현 계획](./mvp/implementation-plan.md): PATCH-13~17 코드 범위와 단계별 자동 검증 gate
 
 ## 후속 상세 설계
 
@@ -95,4 +96,4 @@ MVP 검증 문서는 실제 업무 round trip과 완료 조건을 정의한다.
 
 - [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 설계 단계는 acceptance를 만족시키는 구현 계획이다.
+현재 다음 단계는 PATCH-13부터 실제 MVP 코드를 구현하는 일이다.

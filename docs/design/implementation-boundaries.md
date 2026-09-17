@@ -111,9 +111,13 @@ MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하�
 
 [MVP acceptance](../mvp/acceptance.md)는 신규 기획 등록부터 PlannerAnswer, FinalSpec, DevFlow handoff, ImplementationRef, 개발 중 기획 변경, 장애 복구까지 시나리오 A부터 H로 고정한다.
 
-## 다음 단계는 구현 계획과 실제 MVP 코드다
+## MVP 구현 계획을 확정했다
 
-다음 patch에서 acceptance를 구현 단위로 분해한 뒤 실제 Python MVP 구현 patch를 순서대로 만든다.
+[MVP 구현 계획](../mvp/implementation-plan.md)은 실제 코드를 PATCH-13부터 PATCH-17까지 다섯 단계로 나눈다. 마지막 patch는 fake Notion과 임시 Git repository를 사용한 end-to-end acceptance A부터 H를 자동 검증한다.
+
+## 다음 단계는 실제 MVP 구현이다
+
+설계 경계는 구현에 필요한 수준까지 확정했다. 이후 patch는 Python package, SQLite, Notion collector, 분석·검토, projection, FinalSpec, DevFlow handoff를 실제 코드로 구현한다.
 
 기술 선택은 앞 단계의 계약을 구현하는 데 필요한 시점에 확정한다.
 
