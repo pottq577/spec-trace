@@ -59,17 +59,20 @@ status: "Draft"
 
 이 단계는 데이터베이스 테이블, 배포 구조, 작업 큐 구현을 정하지 않는다. 해당 기술 선택은 처리 계약이 끝난 뒤 애플리케이션 아키텍처에서 확정한다.
 
-## 다음 단계는 변경 감지와 변경 분석 실행 계약이다
+## Snapshot 간 변경 감지 계약을 확정했다
 
-다음 patch부터 두 개의 안정적인 `PlanningDocumentSnapshot`을 입력으로 사용한다. 상세 설계 순서는 다음과 같다:
+[Snapshot 변경 감지](../analysis/change-detection.md)는 새 Snapshot에서 `ChangeSet`을 만드는 조건을 고정한다. 직전 Snapshot을 원문 비교 기준으로 사용하고 page 추가, 제거, 내용, 부모, 역할 변경을 결정론적으로 계산한다.
 
-1. 변경 감지와 `ChangeSet`, `ChangeItem` 생성 조건
-2. Source Diff 분석 입력과 출력 schema
-3. Impact Analysis 입력과 출력 schema
-4. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
-5. 재시도, rate limit, 오류 분류
+`ChangeItem`은 이 단계에서 만들지 않는다. 물리적 page change와 원문 근거를 Source Diff에 전달하고 개발자가 의미 분석 결과를 채택할 때 확정한다.
 
-원문 수집기는 이 단계의 객체를 직접 만들지 않는다. Snapshot 확정 이후의 처리만 후속 분석 파이프라인이 담당한다.
+## 다음 단계는 Source Diff 실행 계약이다
+
+남은 변경 분석 실행 설계는 다음 순서로 진행한다:
+
+1. Source Diff 분석 입력과 출력 schema
+2. Impact Analysis 입력과 출력 schema
+3. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
+4. 재시도, rate limit, 오류 분류
 
 ## 이후 상세 설계 순서를 고정한다
 
