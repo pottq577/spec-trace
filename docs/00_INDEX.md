@@ -15,7 +15,7 @@ status: "Draft"
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
 - **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집 실행, 변경 감지, 변경 추적, 결정 근거, 후속 설계 범위
-- **현재 경계**: Snapshot 간 변경 감지와 `ChangeSet` 생성 계약까지 확정
+- **현재 경계**: Source Diff 후보와 `ChangeItem` 채택 계약까지 확정
 - **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
@@ -62,6 +62,7 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 변경 분석 실행 문서는 새 Snapshot에서 변경 검토를 시작하는 처리 계약을 정의한다.
 
 - [Snapshot 변경 감지](./analysis/change-detection.md): `ChangeSet` 생성 조건, 물리적 page change, 멱등성 규칙
+- [Source Diff 실행](./analysis/source-diff.md): 의미 변경 후보 schema, 원문 근거, coverage, `ChangeItem` 채택 규칙
 
 ## 변경과 결정 추적
 
@@ -76,4 +77,4 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 
 - [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 설계 단계는 Source Diff 입출력과 `ChangeItem` 채택 계약이다.
+현재 다음 설계 단계는 Impact Analysis 입출력과 영향 판정 계약이다.

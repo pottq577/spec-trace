@@ -65,14 +65,19 @@ status: "Draft"
 
 `ChangeItem`은 이 단계에서 만들지 않는다. 물리적 page change와 원문 근거를 Source Diff에 전달하고 개발자가 의미 분석 결과를 채택할 때 확정한다.
 
-## 다음 단계는 Source Diff 실행 계약이다
+## Source Diff 실행 계약을 확정했다
+
+[Source Diff 실행](../analysis/source-diff.md)은 물리적 page change를 의미 단위 후보로 변환한다. 모든 물리적 변경의 coverage와 원문 위치를 검증하고 개발자가 채택한 결과만 불변 `ChangeItem`으로 만든다.
+
+`WORDING_ONLY`와 `IRRELEVANT`는 기본 영향 분석 대상에서 제외한다. Source Diff 자체는 기존 Decision이나 Finding 상태를 변경하지 않는다.
+
+## 다음 단계는 Impact Analysis 실행 계약이다
 
 남은 변경 분석 실행 설계는 다음 순서로 진행한다:
 
-1. Source Diff 분석 입력과 출력 schema
-2. Impact Analysis 입력과 출력 schema
-3. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
-4. 재시도, rate limit, 오류 분류
+1. Impact Analysis 입력과 출력 schema
+2. 인공지능(AI) 분석 결과의 검증과 채택 인터페이스
+3. 재시도, rate limit, 오류 분류
 
 ## 이후 상세 설계 순서를 고정한다
 
