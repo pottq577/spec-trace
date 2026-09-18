@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
 from .analysis import AnalysisService
-from .collector import SourceCollector
 from .devflow import DevFlowService
 from .errors import SpecTraceError, ValidationError
 from .notion import NotionHttpClient
@@ -15,6 +16,8 @@ from .planning_documents import PlanningDocumentService
 from .projection import ProjectionService
 from .repositories import RepositoryService
 from .review import FinalSpecService, ReviewService
+from .runtime import RuntimeService, StatusService
+from .smoke import LiveSmokeService
 from .workspace import Workspace, WorkspaceLock
 
 
@@ -54,7 +57,19 @@ def build_parser() -> argparse.ArgumentParser:
     document_register.add_argument("--page-id", required=True)
 
     collect = sub.add_parser("collect")
-    collect.add_argument("--document", required=True)
+    collect_target = collect.add_mutually_exclusive_group(required=True)
+    collect_target.add_argument("--document")
+    collect_target.add_argument("--all", action="store_true")
+
+    status = sub.add_parser("status")
+    status.add_argument("--document", required=True)
+
+    watch = sub.add_parser("watch")
+    watch.add_argument("--interval", type=float, default=300.0)
+    watch.add_argument("--once", action="store_true")
+
+    live_smoke = sub.add_parser("live-smoke")
+    live_smoke.add_argument("--allow-write", action="store_true")
 
     analysis = sub.add_parser("analysis")
     analysis_sub = analysis.add_subparsers(dest="analysis_command", required=True)
@@ -148,10 +163,26 @@ def run(args: argparse.Namespace) -> Any:
             return record.__dict__
     if args.command == "collect":
         notion = NotionHttpClient.from_environment()
-        service = SourceCollector(workspace.database, workspace.content_store, notion)
+        service = RuntimeService(workspace, notion)
         with WorkspaceLock(workspace):
-            result = service.collect(args.document)
-        return result.__dict__
+            if args.all:
+                return service.collect_all()
+            return service.collect_document(args.document)
+    if args.command == "status":
+        return StatusService(workspace).document(args.document)
+    if args.command == "live-smoke":
+        notion = NotionHttpClient.from_environment()
+        database_id = os.environ.get("SPEC_TRACE_LIVE_DATABASE_ID", "")
+        page_id = os.environ.get("SPEC_TRACE_LIVE_PAGE_ID", "")
+        if not database_id or not page_id:
+            raise ValidationError(
+                "SPEC_TRACE_LIVE_DATABASE_ID and SPEC_TRACE_LIVE_PAGE_ID are required"
+            )
+        service = LiveSmokeService(workspace, notion)
+        with WorkspaceLock(workspace):
+            return service.run(
+                database_id, page_id, allow_write=args.allow_write
+            )
     if args.command in {"analysis", "proposal"}:
         service = AnalysisService(
             workspace.database, workspace.content_store, workspace.root, workspace.analysis_requests_dir
@@ -233,13 +264,32 @@ def run(args: argparse.Namespace) -> Any:
     raise AssertionError("unreachable")
 
 
+def _run_watch(args: argparse.Namespace) -> int:
+    workspace = _workspace(args)
+    workspace.initialize()
+    notion = NotionHttpClient.from_environment()
+    service = RuntimeService(workspace, notion)
+    interval = service.validate_interval(args.interval)
+    while True:
+        with WorkspaceLock(workspace):
+            result = service.run_cycle()
+        _emit(args, result)
+        if args.once:
+            return 0
+        time.sleep(interval)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
     try:
+        if args.command == "watch":
+            return _run_watch(args)
         result = run(args)
         _emit(args, result)
         return 0
+    except KeyboardInterrupt:
+        return 130
     except SpecTraceError as exc:
         if args.json:
             print(
