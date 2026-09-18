@@ -8,10 +8,13 @@ from typing import Any
 
 from .analysis import AnalysisService
 from .collector import SourceCollector
+from .devflow import DevFlowService
 from .errors import SpecTraceError, ValidationError
 from .notion import NotionHttpClient
 from .planning_documents import PlanningDocumentService
+from .projection import ProjectionService
 from .repositories import RepositoryService
+from .review import FinalSpecService, ReviewService
 from .workspace import Workspace, WorkspaceLock
 
 
@@ -73,6 +76,51 @@ def build_parser() -> argparse.ArgumentParser:
     proposal_review.add_argument("--payload")
     proposal_review.add_argument("--reason")
     proposal_review.add_argument("--reviewer", default="developer")
+
+    decision = sub.add_parser("decision")
+    decision_sub = decision.add_subparsers(dest="decision_command", required=True)
+    decision_adopt = decision_sub.add_parser("adopt")
+    decision_adopt.add_argument("--finding", required=True)
+    decision_adopt.add_argument("--payload", required=True)
+
+    question = sub.add_parser("question")
+    question_sub = question.add_subparsers(dest="question_command", required=True)
+    question_publish = question_sub.add_parser("publish")
+    question_publish.add_argument("--finding", required=True)
+    question_publish.add_argument("--payload", required=True)
+
+    answer = sub.add_parser("answer")
+    answer_sub = answer.add_subparsers(dest="answer_command", required=True)
+    answer_verify = answer_sub.add_parser("verify")
+    answer_verify.add_argument("--answer", required=True)
+    answer_verify.add_argument("--payload")
+    answer_verify.add_argument("--reopen", action="store_true")
+    answer_verify.add_argument("--reason")
+
+    blocker = sub.add_parser("blocker")
+    blocker_sub = blocker.add_subparsers(dest="blocker_command", required=True)
+    blocker_set = blocker_sub.add_parser("set")
+    blocker_set.add_argument("--finding", required=True)
+    blocker_set.add_argument("--payload", required=True)
+    blocker_resolve = blocker_sub.add_parser("resolve")
+    blocker_resolve.add_argument("blocker_id")
+    blocker_resolve.add_argument("--reason")
+
+    final_spec = sub.add_parser("final-spec")
+    final_sub = final_spec.add_subparsers(dest="final_spec_command", required=True)
+    final_create = final_sub.add_parser("create")
+    final_create.add_argument("--document", required=True)
+    final_create.add_argument("--content", required=True)
+
+    sync = sub.add_parser("sync")
+    sync.add_argument("--document", required=True)
+
+    devflow = sub.add_parser("devflow")
+    devflow_sub = devflow.add_subparsers(dest="devflow_command", required=True)
+    devflow_export = devflow_sub.add_parser("export")
+    devflow_export.add_argument("--revision", required=True)
+    devflow_import = devflow_sub.add_parser("import")
+    devflow_import.add_argument("path")
     return parser
 
 
@@ -130,6 +178,58 @@ def run(args: argparse.Namespace) -> Any:
                     args.proposal, args.candidate, args.action, reviewer=args.reviewer,
                     reviewed_payload=reviewed_payload, reason=args.reason
                 )
+    if args.command in {"decision", "question", "answer", "blocker"}:
+        service = ReviewService(workspace.database)
+        if args.command == "decision" and args.decision_command == "adopt":
+            payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+            with WorkspaceLock(workspace):
+                decision_id = service.adopt_developer_decision(args.finding, payload)
+            return {"decision_id": decision_id}
+        if args.command == "question" and args.question_command == "publish":
+            payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+            with WorkspaceLock(workspace):
+                question_id = service.publish_question(args.finding, payload)
+            return {"open_question_id": question_id}
+        if args.command == "answer" and args.answer_command == "verify":
+            payload = {}
+            if args.payload:
+                payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+            if not args.reopen and not args.payload:
+                raise ValidationError("--payload is required unless --reopen is used")
+            with WorkspaceLock(workspace):
+                decision_id = service.verify_answer(args.answer, payload, reopen=args.reopen)
+            return {"decision_id": decision_id, "reopened": bool(args.reopen)}
+        if args.command == "blocker" and args.blocker_command == "set":
+            payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+            with WorkspaceLock(workspace):
+                blocker_id = service.set_blocker(args.finding, payload)
+            return {"blocker_id": blocker_id}
+        if args.command == "blocker" and args.blocker_command == "resolve":
+            with WorkspaceLock(workspace):
+                resume_work = service.resolve_blocker(args.blocker_id, args.reason)
+            return {"blocker_id": args.blocker_id, "resume_work": resume_work}
+    if args.command == "final-spec":
+        service = FinalSpecService(workspace.database, workspace.content_store)
+        with WorkspaceLock(workspace):
+            revision_id = service.create(args.document, Path(args.content))
+        return {"final_spec_revision_id": revision_id}
+    if args.command == "sync":
+        notion = NotionHttpClient.from_environment()
+        service = ProjectionService(workspace.database, notion)
+        with WorkspaceLock(workspace):
+            return service.sync(args.document)
+    if args.command == "devflow":
+        service = DevFlowService(
+            workspace.database, workspace.content_store, workspace.root, workspace.exports_dir
+        )
+        if args.devflow_command == "export":
+            with WorkspaceLock(workspace):
+                path = service.export(args.revision)
+            return {"path": str(path)}
+        if args.devflow_command == "import":
+            with WorkspaceLock(workspace):
+                implementation_ref_id = service.import_receipt(Path(args.path))
+            return {"implementation_ref_id": implementation_ref_id}
     raise AssertionError("unreachable")
 
 

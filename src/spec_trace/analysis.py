@@ -378,6 +378,7 @@ class AnalysisService:
                 "INSERT INTO impact_link_evidence(impact_link_id, evidence_ref_id) VALUES (?, ?)",
                 (impact_link_id, evidence_id),
             )
+        self._apply_impact_transition(connection, target_type, target_ref, assessment)
         return {"impact_link_id": impact_link_id}
 
     def _adopt_review(self, connection, proposal, payload, action_id) -> dict[str, Any]:
@@ -423,6 +424,42 @@ class AnalysisService:
             (review_cycle_id,),
         )
         return {"finding_id": finding_id, "review_cycle_id": review_cycle_id}
+
+
+    @staticmethod
+    def _apply_impact_transition(connection, target_type: str, target_ref: str, assessment: str) -> None:
+        if assessment == "UNAFFECTED":
+            return
+        finding_id = None
+        if target_type == "FINDING":
+            finding = connection.execute(
+                "SELECT finding_id, review_cycle_id FROM findings WHERE finding_id = ?", (target_ref,)
+            ).fetchone()
+            if finding:
+                finding_id = finding["finding_id"]
+        elif target_type == "DECISION":
+            decision = connection.execute(
+                "SELECT finding_id FROM decisions WHERE decision_id = ?", (target_ref,)
+            ).fetchone()
+            if decision:
+                finding_id = decision["finding_id"]
+                if assessment == "INVALIDATED":
+                    connection.execute(
+                        "UPDATE decisions SET status = 'INVALIDATED' WHERE decision_id = ?", (target_ref,)
+                    )
+        if finding_id:
+            row = connection.execute(
+                "SELECT review_cycle_id FROM findings WHERE finding_id = ?", (finding_id,)
+            ).fetchone()
+            connection.execute(
+                "UPDATE findings SET status = 'REOPENED' WHERE finding_id = ? AND status != 'SUPERSEDED'",
+                (finding_id,),
+            )
+            if row:
+                connection.execute(
+                    "UPDATE review_cycles SET status = 'REVIEWING' WHERE review_cycle_id = ? AND status != 'SUPERSEDED'",
+                    (row["review_cycle_id"],),
+                )
 
     def _ensure_review_cycle(self, connection, planning_document_id: str) -> str:
         document = connection.execute(

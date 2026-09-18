@@ -3,7 +3,7 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Callable
 
-from spec_trace.errors import ResourceNotFound
+from spec_trace.errors import ExternalServiceError, ResourceNotFound
 from spec_trace.notion import normalize_notion_id
 
 
@@ -60,6 +60,8 @@ class FakeNotion:
         self.root_retrieve_count = 0
         self.on_second_capture: Callable[["FakeNotion"], None] | None = None
         self.databases: dict[str, dict[str, Any]] = {}
+        self._next_generated_id = 100000
+        self.fail_next_write = False
 
     def retrieve_page(self, page_id: str) -> dict[str, Any]:
         page_id = normalize_notion_id(page_id)
@@ -79,5 +81,51 @@ class FakeNotion:
             raise ResourceNotFound(database_id)
         return deepcopy(self.databases[database_id])
 
+    def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]:
+        self._maybe_fail_write()
+        page_id = notion_id(self._next_generated_id)
+        self._next_generated_id += 1
+        parent_page_id = normalize_notion_id(parent_page_id)
+        created = page(page_id, title)
+        created["parent"] = {"type": "page_id", "page_id": parent_page_id}
+        self.pages[page_id] = created
+        self.children[page_id] = []
+        self.children.setdefault(parent_page_id, []).append(child_page(page_id, title))
+        return deepcopy(created)
+
+    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        self._maybe_fail_write()
+        block_id = normalize_notion_id(block_id)
+        created: list[dict[str, Any]] = []
+        for source in children:
+            item = deepcopy(source)
+            item_id = notion_id(self._next_generated_id)
+            self._next_generated_id += 1
+            item["id"] = item_id
+            item.setdefault("object", "block")
+            item.setdefault("has_children", False)
+            if item.get("type") == "toggle":
+                item["has_children"] = bool(item.get("_captured_children"))
+                self.children[item_id] = []
+            self.children.setdefault(block_id, []).append(item)
+            created.append(item)
+        return deepcopy(created)
+
+    def update_block(self, block_id: str, block_type: str, value: dict[str, Any]) -> dict[str, Any]:
+        self._maybe_fail_write()
+        block_id = normalize_notion_id(block_id)
+        for blocks in self.children.values():
+            for item in blocks:
+                if normalize_notion_id(str(item.get("id"))) == block_id:
+                    item["type"] = block_type
+                    item[block_type] = deepcopy(value)
+                    return deepcopy(item)
+        raise ResourceNotFound(block_id)
+
     def list_block_children(self, block_id: str) -> list[dict[str, Any]]:
         return deepcopy(self.children.get(normalize_notion_id(block_id), []))
+
+    def _maybe_fail_write(self) -> None:
+        if self.fail_next_write:
+            self.fail_next_write = False
+            raise ExternalServiceError("fake write failure")

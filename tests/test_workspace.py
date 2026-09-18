@@ -20,4 +20,4 @@ class WorkspaceTest(unittest.TestCase):
                 ).fetchone()["c"]
             finally:
                 connection.close()
-            self.assertEqual(count, 1)
+            self.assertEqual(count, 2)

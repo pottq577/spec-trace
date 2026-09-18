@@ -30,6 +30,12 @@ class NotionPort(Protocol):
 
     def retrieve_database(self, database_id: str) -> dict[str, Any]: ...
 
+    def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]: ...
+
+    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> list[dict[str, Any]]: ...
+
+    def update_block(self, block_id: str, block_type: str, value: dict[str, Any]) -> dict[str, Any]: ...
+
     def list_block_children(self, block_id: str) -> list[dict[str, Any]]: ...
 
 
@@ -105,6 +111,34 @@ class NotionHttpClient:
     def retrieve_database(self, database_id: str) -> dict[str, Any]:
         return self._request_json("GET", f"/v1/databases/{normalize_notion_id(database_id)}")
 
+    def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]:
+        return self._request_json(
+            "POST",
+            "/v1/pages",
+            {
+                "parent": {"type": "page_id", "page_id": normalize_notion_id(parent_page_id)},
+                "properties": {
+                    "title": {
+                        "type": "title",
+                        "title": [{"type": "text", "text": {"content": title}}],
+                    }
+                },
+            },
+        )
+
+    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        payload = self._request_json(
+            "PATCH",
+            f"/v1/blocks/{normalize_notion_id(block_id)}/children",
+            {"children": children},
+        )
+        return list(payload.get("results") or [])
+
+    def update_block(self, block_id: str, block_type: str, value: dict[str, Any]) -> dict[str, Any]:
+        return self._request_json(
+            "PATCH", f"/v1/blocks/{normalize_notion_id(block_id)}", {block_type: value}
+        )
+
     def list_block_children(self, block_id: str) -> list[dict[str, Any]]:
         normalized = normalize_notion_id(block_id)
         results: list[dict[str, Any]] = []
@@ -121,10 +155,11 @@ class NotionHttpClient:
             if not cursor:
                 raise ExternalServiceError("Notion pagination returned has_more without next_cursor")
 
-    def _request_json(self, method: str, path: str) -> dict[str, Any]:
+    def _request_json(self, method: str, path: str, body: dict[str, Any] | None = None) -> dict[str, Any]:
         url = "https://api.notion.com" + path
         request = urllib.request.Request(
             url,
+            data=json.dumps(body, ensure_ascii=False).encode("utf-8") if body is not None else None,
             method=method,
             headers={
                 "Authorization": f"Bearer {self.token}",
