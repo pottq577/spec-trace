@@ -28,13 +28,12 @@ MVP runtime은 Python 3.12 이상을 사용한다. 핵심 실행 경로는 표�
 주요 사용 모듈은 다음과 같다:
 
 - `sqlite3`: 영속 저장
-- `urllib.request`: Notion REST 호출
 - `json`: contract packet과 projection payload
 - `hashlib`: content hash와 payload hash
 - `argparse`: CLI
-- `subprocess`: Git immutable commit 조회
+- `subprocess`: `ntn api`와 Git immutable commit 조회
 - `pathlib`: workspace와 artifact 경로
-- `threading`과 `queue`: 단일 Notion request queue
+- `threading`: process 내부 `ntn` 호출 limiter
 - `time`과 `random`: rate limit과 retry
 
 추가 라이브러리가 필요해지면 core contract를 바꾸지 않는 adapter 단위로 도입한다.
@@ -95,13 +94,15 @@ MVP는 다음 application service를 둔다:
 
 CLI는 이 service를 호출할 뿐 도메인 상태를 직접 수정하지 않는다.
 
-## Notion adapter는 하나의 request queue를 공유한다
+## Notion adapter는 `ntn api`를 사용한다
 
-Notion adapter는 process 안에서 하나의 queue와 rate limiter를 공유한다. 모든 page 조회, block 조회, projection write가 같은 client를 통과한다.
+Notion adapter는 direct HTTP client를 두지 않는다. 모든 page 조회, database 조회, block 조회, projection write를 `ntn api` subprocess로 실행한다.
 
-기본 `Notion-Version`은 `2026-03-11`로 두고 환경 변수로 교체할 수 있게 한다. API version 변경은 adapter compatibility test를 통과한 뒤 기본값을 갱신한다.
+기본 Notion API 버전은 `2026-03-11`이며 adapter가 매 호출에 `--notion-version`으로 전달한다. `NOTION_VERSION`으로 교체할 수 있고, API version 변경은 adapter compatibility test를 통과한 뒤 기본값을 갱신한다.
 
-integration token은 `NOTION_TOKEN` 환경 변수에서만 읽는다. token 원문을 SQLite나 log에 저장하지 않는다.
+인증은 미리 완료한 `ntn login` 세션을 사용한다. spec-trace는 `NOTION_TOKEN`을 읽거나 저장하지 않는다. 다른 실행 파일이 필요할 때만 `NTN_BIN`을 지정한다.
+
+하나의 command나 watch process는 같은 `NotionCliClient`를 재사용한다. adapter의 shared limiter가 `ntn` 실행 속도를 제한하고, write 실패는 projection reconcile로 복구한다.
 
 ## Git adapter는 로컬 저장소를 read-only로 사용한다
 

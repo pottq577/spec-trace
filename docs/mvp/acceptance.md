@@ -125,18 +125,19 @@ fixture adapter가 수집과 projection 실패를 의도적으로 발생시킨�
 
 - 시작·종료 tree가 다르면 Snapshot 후보를 폐기한다
 - `SOURCE_UNSTABLE` retry를 소진해도 마지막 정상 Snapshot을 유지한다
-- `429`와 `529`는 `Retry-After` 정책을 따른다
+- 재시도 가능한 `ntn` GET 실패는 제한된 exponential backoff를 사용한다
+- projection write 실패는 adapter에서 즉시 재시도하지 않고 reconcile로 복구한다
 - Notion projection 실패가 내부 Decision을 rollback하지 않는다
 - process restart 뒤 pending operation과 projection reconcile을 먼저 실행한다
 - 같은 recovery operation이 dedupe key 때문에 중복 실행되지 않는다
 
 ## 자동 acceptance는 외부 서비스 없이 재현 가능해야 한다
 
-CI와 로컬 test suite는 fake Notion adapter와 임시 Git repository를 사용해 시나리오 A부터 H까지 실행한다. test는 실제 integration token이나 회사 Notion workspace를 요구하지 않는다.
+CI와 로컬 test suite는 fake Notion adapter와 임시 Git repository를 사용해 시나리오 A부터 H까지 실행한다. test는 실제 `ntn` 설치, 로그인 세션, 회사 Notion workspace를 요구하지 않는다.
 
-fake adapter는 pagination, nested block, child page, archive, rate limit, write timeout, answer slot 수정 시나리오를 재현한다.
+fake adapter는 pagination, nested block, child page, archive, rate limit, write timeout, answer slot 수정 시나리오를 재현한다. `NotionCliClient` 단위 테스트는 실제 subprocess 대신 fake runner로 `ntn api` 인자와 재시도 경계를 검증한다.
 
-## live smoke는 실제 Notion API 호환성을 확인한다
+## live smoke는 `ntn` 기반 Notion 연동 호환성을 확인한다
 
 실제 운영 전에 전용 테스트 page에서 live smoke를 실행한다. 이 검증은 다음 항목만 확인한다:
 
@@ -146,7 +147,7 @@ fake adapter는 pagination, nested block, child page, archive, rate limit, write
 4. answer slot 읽기
 5. projection reconcile
 
-live smoke는 제품 기획 page를 사용하지 않는다. integration token은 환경 변수로만 전달한다.
+live smoke는 제품 기획 page를 사용하지 않는다. 실행 전에 `ntn login`으로 인증을 완료하고 `SPEC_TRACE_LIVE_DATABASE_ID`, `SPEC_TRACE_LIVE_PAGE_ID`만 대상 식별자로 전달한다.
 
 ## MVP 완료 gate는 네 범주를 모두 통과해야 한다
 
@@ -157,7 +158,7 @@ live smoke는 제품 기획 page를 사용하지 않는다. integration token은
 - **Workflow**: 시나리오 A부터 H 자동 acceptance 통과
 - **Integration**: Notion live smoke를 실행할 수 있는 command와 문서가 존재하며 실제 배포 전 smoke 성공
 
-현재 작업에서 자동 검증 가능한 첫 세 gate를 통과해야 patch series를 완료한다. 실제 Notion credential이 필요한 live smoke 결과는 사용자 환경에서 별도로 기록한다.
+현재 작업에서 자동 검증 가능한 첫 세 gate를 통과해야 patch series를 완료한다. 인증된 `ntn` 세션이 필요한 live smoke 결과는 사용자 환경에서 별도로 기록한다.
 
 ## acceptance evidence는 한 명령으로 수집한다
 

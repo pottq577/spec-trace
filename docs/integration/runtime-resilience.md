@@ -1,55 +1,54 @@
 ---
 meta:
-  title: "연동 실패와 rate limit을 어떻게 복구하는가"
+  title: "ntn 연동 실패와 호출 제한을 어떻게 복구하는가"
   contentType: "Reference"
   category: "Internal planning"
 status: "Draft"
 ---
 
-# 연동 실패와 rate limit을 어떻게 복구하는가
+# ntn 연동 실패와 호출 제한을 어떻게 복구하는가
 
-이 문서는 Notion 호출, 원문 수집, 분석 import, 저장, Notion projection에서 발생하는 오류를 분류하고 재시도 책임을 고정한다. 모든 재실행은 마지막 확정 이력을 유지한 상태에서 시작한다.
+이 문서는 `ntn` 기반 Notion 호출, 원문 수집, 분석 import, 저장, Notion projection에서 발생하는 오류를 분류하고 재시도 책임을 고정한다. 모든 재실행은 마지막 확정 이력을 유지한 상태에서 시작한다.
 
 ## 재시도는 가장 낮은 공통 계층에서 한 번만 담당한다
 
-같은 실패에 HTTP client, collector, scheduler가 각각 retry loop를 만들면 요청 폭주와 중복 쓰기가 생길 수 있다. 각 실패는 하나의 계층만 재시도를 소유한다.
+같은 실패에 CLI adapter, collector, scheduler가 각각 retry loop를 만들면 요청 폭주와 중복 쓰기가 생길 수 있다. 각 실패는 하나의 계층만 재시도를 소유한다.
 
 책임은 다음과 같이 나눈다:
 
-- HTTP 전송 실패와 Notion 일시 오류: Notion HTTP client
+- `ntn` 실행 실패와 Notion 일시 오류: Notion CLI adapter
 - 수집 중 원문 변경: source collection job
 - 저장 충돌과 트랜잭션 실패: storage adapter
 - 구조화 분석 결과 검증 실패: 재시도하지 않고 새 proposal 요청
 - Notion projection 부분 실패: projection reconcile job
 
-## Notion 요청은 중앙 queue를 통과한다
+## 모든 `ntn` 호출은 같은 limiter를 사용한다
 
-MVP는 하나의 Notion connection에 대해 모든 요청을 중앙 queue로 직렬화한다. 기본 송신 속도는 초당 2건으로 제한해 Notion의 connection 평균 제한보다 여유를 둔다.
+MVP command는 하나의 `NotionCliClient`를 생성해 page 조회, block 조회, projection write에 재사용한다. adapter는 `ntn` 실행 전 같은 rate limiter를 거치며 기본 속도를 초당 2회로 제한한다.
 
-서로 다른 collector나 projection 작업이 독립적인 rate limiter를 가지면 안 된다. `Retry-After`를 받으면 중앙 queue 전체가 해당 connection의 다음 요청을 지연한다.
+`ntn api`가 인증 헤더와 Notion API 버전을 처리한다. spec-trace는 HTTP 헤더나 PAT를 직접 만들지 않는다.
 
-## HTTP 재시도는 상태 코드와 멱등성을 기준으로 한다
+## GET 재시도는 `ntn` 오류 출력과 멱등성을 기준으로 한다
 
-Notion HTTP client는 한 요청에 최대 6회 시도한다. 다음 응답을 자동 재시도한다:
+Notion CLI adapter는 한 GET 요청을 최대 6회 시도한다. `ntn` 오류 출력에 `429`, `529`, `500`, `502`, `503`, `504`가 포함되면 재시도한다.
 
-- `429`: rate limited
-- `529`: service overload
-- `500`, `502`, `503`, `504`: `GET`과 `DELETE`처럼 멱등성이 보장된 요청
+재시도 지연은 `1s`, `2s`, `4s`, `8s`, `16s`, `30s` 상한의 exponential backoff를 사용하고 최대 `250 ms` jitter를 더한다.
 
-`Retry-After`가 있으면 해당 초를 우선 사용한다. 없으면 `1s`, `2s`, `4s`, `8s`, `16s`, `30s` 상한의 exponential backoff를 사용하고 최대 `250 ms` jitter를 더한다.
-
-Notion page 또는 block 생성·수정 요청은 내부 idempotency mapping이나 reconcile 근거가 확보된 경우에만 같은 payload를 자동 재시도한다. 중복 생성 가능성이 있으면 write job으로 제어를 넘긴다.
+page 생성, block 추가, block 수정 같은 write는 adapter에서 자동 재시도하지 않는다. 호출 결과가 불명확하면 projection mapping과 reconcile이 실제 반영 상태를 확인한 뒤 필요한 write만 다시 실행한다.
 
 ## 인증과 요청 오류는 자동 반복하지 않는다
 
 다음 오류는 기본적으로 재시도하지 않는다:
 
-- `401`: integration token 또는 인증 설정 오류
-- `403`: connection capability 또는 접근 권한 오류
+- `ntn` 실행 파일 부재 또는 로그인 세션 오류
+- `401`: `ntn` 인증 설정 오류
+- `403`: 워크스페이스 또는 대상 페이지 접근 권한 오류
 - `400`: validation, payload size, 지원하지 않는 요청
 - 지속적인 `404`: 대상 부재 또는 접근 범위 변경 가능성
 
-`404`는 Notion에서 대상 부재와 접근 권한 상실을 동일하게 표현할 수 있으므로 원인을 추측하지 않는다. collector는 ROOT 직접 조회와 connection 상태를 함께 확인해 `SOURCE_UNAVAILABLE` 또는 연동 설정 오류로 분류한다.
+`404`는 Notion에서 대상 부재와 접근 권한 상실을 동일하게 표현할 수 있으므로 원인을 추측하지 않는다. collector는 ROOT 직접 조회 결과를 기준으로 `SOURCE_UNAVAILABLE` 또는 연동 설정 오류로 분류한다.
+
+spec-trace는 `NOTION_TOKEN`을 애플리케이션 설정으로 사용하지 않는다. 인증 상태와 credential 저장은 `ntn`이 소유한다.
 
 ## 오류는 실행 책임 기준으로 분류한다
 
@@ -57,7 +56,7 @@ Notion page 또는 block 생성·수정 요청은 내부 idempotency mapping이�
 
 - `TRANSIENT_REMOTE`: 일시적인 Notion 또는 네트워크 오류
 - `RATE_LIMITED`: `429` 또는 `529`로 요청 속도 조절이 필요함
-- `AUTHENTICATION_FAILED`: token이 유효하지 않음
+- `AUTHENTICATION_FAILED`: `ntn` 로그인 세션이나 CLI 인증 설정이 유효하지 않음
 - `AUTHORIZATION_FAILED`: connection capability 또는 대상 접근 권한이 부족함
 - `INVALID_REMOTE_REQUEST`: API version, payload, size, validation 오류
 - `SOURCE_UNSTABLE`: 수집 중 원문이 변경됨
@@ -76,9 +75,9 @@ Notion page 또는 block 생성·수정 요청은 내부 idempotency mapping이�
 
 지연은 `5s`, `15s`, `30s`를 사용한다. 세 번 모두 불안정하면 현재 run을 종료하고 다음 5분 polling 또는 명시적 refresh에서 다시 시도한다.
 
-## HTTP retry가 끝난 원격 실패는 scheduler로 되돌린다
+## `ntn` GET 재시도가 끝난 원격 실패는 scheduler로 되돌린다
 
-HTTP client가 최대 시도를 소진하면 collector가 같은 호출을 다시 반복하지 않는다. 현재 collection run을 `COLLECTION_FAILED`로 종료하고 `retryable=true`인 경우 다음 polling 대상에 남긴다.
+CLI adapter가 최대 시도를 소진하면 collector가 같은 호출을 다시 반복하지 않는다. 현재 collection run을 `COLLECTION_FAILED`로 종료하고 `retryable=true`인 경우 다음 polling 대상에 남긴다.
 
 인증·권한·요청 형식 오류는 설정을 바꾸기 전까지 반복해도 성공할 가능성이 없으므로 운영 상태에 `attention_required=true`를 표시한다.
 
@@ -123,9 +122,9 @@ Snapshot 확정, `ChangeItem` 채택, `ImpactLink` 채택, Decision 생성은 �
 
 구현은 최소한 다음 사례를 검증해야 한다:
 
-- 모든 Notion 요청이 하나의 connection queue와 rate limiter를 공유한다
-- `429`와 `529`에서 `Retry-After`를 우선 사용한다
-- 멱등성이 보장되지 않은 create 요청을 응답 불명 상태에서 바로 반복하지 않는다
+- 모든 `ntn` 요청이 같은 client의 rate limiter를 거친다
+- 재시도 가능한 GET 실패는 제한된 exponential backoff를 사용한다
+- write 요청을 adapter에서 자동 재시도하지 않는다
 - `SOURCE_UNSTABLE`은 세 번의 짧은 retry 뒤 다음 polling으로 넘긴다
 - invalid analysis payload를 보존하되 도메인 이력으로 채택하지 않는다
 - 내부 저장 성공 후 Notion projection이 실패해도 내부 결정을 되돌리지 않는다

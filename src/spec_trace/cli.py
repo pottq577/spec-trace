@@ -11,7 +11,7 @@ from typing import Any
 from .analysis import AnalysisService
 from .devflow import DevFlowService
 from .errors import SpecTraceError, ValidationError
-from .notion import NotionHttpClient
+from .notion import NotionCliClient
 from .planning_documents import PlanningDocumentService
 from .projection import ProjectionService
 from .repositories import RepositoryService
@@ -155,14 +155,14 @@ def run(args: argparse.Namespace) -> Any:
         if args.repo_command == "list":
             return [record.__dict__ for record in service.list()]
     if args.command == "document":
-        notion = NotionHttpClient.from_environment()
+        notion = NotionCliClient.from_environment()
         service = PlanningDocumentService(workspace.database, notion)
         if args.document_command == "register":
             with WorkspaceLock(workspace):
                 record = service.register(args.database_id, args.page_id)
             return record.__dict__
     if args.command == "collect":
-        notion = NotionHttpClient.from_environment()
+        notion = NotionCliClient.from_environment()
         service = RuntimeService(workspace, notion)
         with WorkspaceLock(workspace):
             if args.all:
@@ -171,7 +171,7 @@ def run(args: argparse.Namespace) -> Any:
     if args.command == "status":
         return StatusService(workspace).document(args.document)
     if args.command == "live-smoke":
-        notion = NotionHttpClient.from_environment()
+        notion = NotionCliClient.from_environment()
         database_id = os.environ.get("SPEC_TRACE_LIVE_DATABASE_ID", "")
         page_id = os.environ.get("SPEC_TRACE_LIVE_PAGE_ID", "")
         if not database_id or not page_id:
@@ -245,7 +245,7 @@ def run(args: argparse.Namespace) -> Any:
             revision_id = service.create(args.document, Path(args.content))
         return {"final_spec_revision_id": revision_id}
     if args.command == "sync":
-        notion = NotionHttpClient.from_environment()
+        notion = NotionCliClient.from_environment()
         service = ProjectionService(workspace.database, notion)
         with WorkspaceLock(workspace):
             return service.sync(args.document)
@@ -267,7 +267,7 @@ def run(args: argparse.Namespace) -> Any:
 def _run_watch(args: argparse.Namespace) -> int:
     workspace = _workspace(args)
     workspace.initialize()
-    notion = NotionHttpClient.from_environment()
+    notion = NotionCliClient.from_environment()
     service = RuntimeService(workspace, notion)
     interval = service.validate_interval(args.interval)
     while True:

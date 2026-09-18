@@ -29,28 +29,52 @@ python -m unittest discover -s tests -v
 `pip install -e .`는 현재 저장소를 코드 수정이 즉시 반영되는 editable 방식으로 설치한다.
 이 과정에서 `src/spec_trace.egg-info/`가 생성될 수 있으며 Git에는 포함하지 않는다.
 
-자동 테스트는 fake Notion adapter를 사용한다. `NOTION_TOKEN` 없이 실행할 수 있다.
+자동 테스트는 fake Notion adapter를 사용하므로 `ntn` 설치나 로그인 없이 실행할 수 있다.
 
 모든 테스트가 `OK`로 끝나면 코드 기준 첫 검증 조건을 통과한 상태다.
 
 ## 실제 Notion 연동을 준비한다
 
-실제 Notion API를 확인하려면 Notion integration과 테스트용 database row가 필요하다.
-쓰기 smoke test는 ROOT 아래에 `개발 검토` 페이지를 생성하므로 운영 기획서보다 테스트용 페이지를 먼저 사용한다.
+실제 Notion 연동은 개인 액세스 토큰(PAT)을 직접 읽지 않는다. spec-trace는 Notion CLI `ntn`의 로그인 세션을 사용한다.
 
-환경 변수는 다음과 같이 설정한다:
+먼저 `ntn`을 설치하고 사용할 워크스페이스에 로그인한다:
 
 ```bash
-export NOTION_TOKEN=your_notion_token_here
+curl -fsSL https://ntn.dev | bash
+ntn login
+ntn doctor
+```
+
+쓰기 smoke test는 ROOT 아래에 `개발 검토` 페이지를 생성한다. 운영 기획서 대신 테스트용 데이터베이스 행 페이지를 사용한다.
+
+live smoke 대상만 환경 변수로 지정한다:
+
+```bash
 export SPEC_TRACE_LIVE_DATABASE_ID=your_database_id_here
 export SPEC_TRACE_LIVE_PAGE_ID=your_test_page_id_here
 ```
 
-`your_notion_token_here`, `your_database_id_here`, `your_test_page_id_here`는 실제 값으로 바꾼다.
+다른 `ntn` 실행 파일이나 API 버전을 사용해야 할 때만 `NTN_BIN`과 `NOTION_VERSION`을 지정한다. spec-trace는 `NOTION_TOKEN`을 읽거나 저장하지 않는다.
+
+## Notion 메뉴 트리를 갱신한다
+
+`bin/notion-tree.sh`는 작업 데이터 소스의 `메뉴명`과 `상위 항목` 관계를 읽어 전체 메뉴 트리를 갱신한다:
+
+```bash
+./bin/notion-tree.sh
+```
+
+다른 데이터 소스를 읽으려면 첫 번째 인자나 `SPEC_TRACE_NOTION_DATA_SOURCE_ID`를 사용한다:
+
+```bash
+SPEC_TRACE_NOTION_DATA_SOURCE_ID=your_data_source_id_here ./bin/notion-tree.sh
+```
+
+이 트리는 메뉴 탐색용 스냅샷이다. `spec-trace collect`는 등록한 ROOT 페이지 본문을 읽고, 페이지 내부의 `child_page`를 깊이 제한 없이 재귀 수집한다.
 
 ## Notion live smoke를 실행한다
 
-먼저 읽기 권한과 Notion API 호환성을 확인한다:
+먼저 `ntn` 로그인 세션, 읽기 권한, Notion API 호환성을 확인한다:
 
 ```bash
 spec-trace live-smoke
@@ -243,7 +267,9 @@ watch는 다음 순서로 동작한다:
 spec-trace watch --interval 300
 ```
 
-기본 운영 주기는 300초다.
+기본 운영 주기는 300초다. 이 명령은 현재 프로세스에서 직접 실행한다.
+
+cron 등록은 이번 `ntn` 마이그레이션 범위에 포함하지 않는다. 실제 업무 페이지에서 수집과 projection을 검증한 뒤 별도 자동화 단계에서 추가한다.
 
 ## 첫 FinalSpecRevision을 만든다
 

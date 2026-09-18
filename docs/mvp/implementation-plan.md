@@ -47,8 +47,8 @@ PYTHONPATH=src python -m spec_trace --help
 
 두 번째 코드 patch는 다음 책임을 추가한다:
 
-- Notion REST client와 request queue
-- retry와 rate limit
+- Notion port와 `ntn api` live adapter
+- GET retry와 process 내부 rate limit
 - page, block pagination
 - child page tree capture
 - system review page 제외
@@ -113,17 +113,18 @@ PYTHONPATH=src python -m unittest discover -s tests -v
 
 unit과 acceptance test는 실제 sleep, wall clock, Notion network에 의존하지 않는다. application service는 clock, sleeper, Notion port를 주입받는다.
 
-rate limit test는 virtual sleeper가 받은 delay를 검증한다. Git test는 test가 생성한 임시 repository와 실제 `git` executable을 사용한다.
+`ntn` adapter test는 fake runner와 virtual sleeper가 받은 command와 delay를 검증한다. Git test는 test가 생성한 임시 repository와 실제 `git` executable을 사용한다.
 
 ## live smoke는 명시적 환경 변수로만 활성화한다
 
-일반 test는 `NOTION_TOKEN`이 있어도 실제 Notion을 호출하지 않는다. live smoke는 별도 command와 test page ID를 함께 지정해야 실행된다.
+일반 test는 실제 `ntn` subprocess나 Notion을 호출하지 않는다. live smoke는 별도 command와 test page ID를 함께 지정해야 실행된다.
 
-필수 환경 변수는 다음과 같다:
+live smoke를 실행하기 전에 `ntn login`으로 인증을 완료한다. 필수 환경 변수는 다음과 같다:
 
-- `NOTION_TOKEN`
 - `SPEC_TRACE_LIVE_DATABASE_ID`
 - `SPEC_TRACE_LIVE_PAGE_ID`
+
+`NTN_BIN`과 `NOTION_VERSION`은 기본값을 바꿀 때만 지정한다. spec-trace는 `NOTION_TOKEN`을 읽지 않는다.
 
 live smoke는 시스템이 소유한 테스트 page에서만 수행한다.
 

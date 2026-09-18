@@ -85,7 +85,7 @@ MVP는 특정 모델 API를 필수로 사용하지 않는다. ChatGPT, Codex, �
 
 ## 실행 오류와 재시도 계약을 확정했다
 
-[연동 실패와 재시도](../integration/runtime-resilience.md)는 Notion 요청을 중앙 queue로 제한하고 오류별 retry ownership을 고정한다. 외부 write와 내부 저장은 분산 트랜잭션으로 묶지 않고 projection reconcile로 수렴한다.
+[연동 실패와 재시도](../integration/runtime-resilience.md)는 `ntn` 호출을 shared limiter로 제한하고 오류별 retry ownership을 고정한다. 외부 write와 내부 저장은 분산 트랜잭션으로 묶지 않고 projection reconcile로 수렴한다.
 
 이 문서까지 원문 수집과 변경 분석 실행 계약을 완료했다.
 

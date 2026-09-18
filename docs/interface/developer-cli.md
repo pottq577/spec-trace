@@ -20,7 +20,7 @@ status: "Draft"
 - `--json`: 사람이 읽는 출력 대신 JSON envelope 출력
 - `--no-color`: 터미널 색상 비활성화
 
-`NOTION_TOKEN`처럼 secret 값은 command argument로 받지 않는다.
+spec-trace는 Notion secret을 command argument나 애플리케이션 환경 변수로 받지 않는다. 실사용 인증은 먼저 `ntn login`으로 구성한다.
 
 ## workspace init이 실행 환경을 만든다
 
@@ -58,7 +58,7 @@ spec-trace document register \
   --page-id notion_page_id_here
 ```
 
-등록 시 ROOT page를 한 번 조회해 접근 권한, archive 상태, database parent를 검증한다. title은 Notion에서 읽으며 local 입력값을 정식 identity로 사용하지 않는다.
+등록 시 `ntn api`로 ROOT page를 한 번 조회해 접근 권한, archive 상태, database parent를 검증한다. title은 Notion에서 읽으며 local 입력값을 정식 identity로 사용하지 않는다.
 
 같은 database와 ROOT page를 다시 등록하면 기존 `PlanningDocument`를 반환한다.
 
@@ -76,7 +76,7 @@ spec-trace collect --document planning_document_id_here
 spec-trace watch
 ```
 
-`watch` 기본 interval은 `300s`다. process는 미완료 `pending_operations`와 projection reconcile을 먼저 처리하고 정기 collection을 실행한다.
+`watch` 기본 interval은 `300s`다. process는 미완료 `pending_operations`와 projection reconcile을 먼저 처리하고 정기 collection을 실행한다. cron 등록은 `ntn` 마이그레이션 검증 이후 별도 운영 단계에서 추가한다.
 
 ## status가 현재 lifecycle을 한 화면에 보여준다
 

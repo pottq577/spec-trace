@@ -56,7 +56,7 @@ Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고
 - [Notion 원문 수집 실행](./integration/notion-source-collection.md): 수집 주기, 이중 트리 검증, canonicalization, hash, Snapshot 확정 결과
 - [Notion 검토 결과 계약](./integration/notion-review-contract.md): ROOT 아래 `개발 검토` 페이지, answer slot, 시스템·기획자 소유권
 - [Notion 동기화 규칙](./integration/notion-sync-rules.md): idempotency, 부분 실패, 삭제와 이동, reconcile, 자기 변경 루프 방지
-- [연동 실패와 재시도](./integration/runtime-resilience.md): 중앙 rate limit, HTTP retry, 오류 분류, 재시작 복구
+- [연동 실패와 재시도](./integration/runtime-resilience.md): `ntn` 호출 제한, CLI 오류 분류, 재시도, 재시작 복구
 - [DevFlow 연동](./integration/devflow-contract.md): FinalSpec handoff, freshness, BlockedScope, implementation receipt와 `ImplementationRef`
 
 ## 변경 분석 실행

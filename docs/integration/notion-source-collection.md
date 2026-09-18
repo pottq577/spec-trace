@@ -26,6 +26,12 @@ status: "Draft"
 
 수집기는 `ChangeSet`, Source Diff, Impact Analysis, `ReviewCycle`을 만들지 않는다. 이번 실행의 책임은 원문 상태를 일관되게 읽고 Snapshot 생성 여부를 확정하는 데서 끝난다.
 
+## Notion 원문 조회는 `ntn` adapter를 사용한다
+
+실사용 adapter는 PAT를 직접 읽지 않는다. 모든 page, database, block 조회를 `ntn api`로 실행하며 인증은 `ntn login` 세션에 맡긴다.
+
+메뉴 탐색은 `bin/notion-tree.sh`가 데이터 소스의 `메뉴명`과 `상위 항목`을 읽어 만든 트리를 사용한다. 개별 `PlanningDocument` 수집은 등록한 ROOT의 block tree를 읽고 `child_page`를 깊이 제한 없이 재귀 수집한다.
+
 ## 기본 수집 주기는 5분 폴링으로 고정한다
 
 최소 기능 제품(Minimum Viable Product, MVP)의 기본 감지 방식은 5분 간격 폴링이다. 이 값은 운영 설정이며 도메인 불변 규칙은 아니다.
@@ -65,7 +71,7 @@ status: "Draft"
 - ROOT가 등록된 모니터링 데이터베이스 밖으로 이동한 상태
 - Notion이 ROOT의 부재 또는 접근 권한 상실을 확정적으로 반환한 상태
 
-네트워크 오류, rate limit, 서버 오류처럼 현재 ROOT 상태를 확정할 수 없는 API 실패는 `COLLECTION_FAILED`로 처리한다. 마지막 정상 Snapshot은 모든 경우에 유지한다.
+`ntn`이 네트워크 오류, rate limit, 서버 오류를 반환해 현재 ROOT 상태를 확정할 수 없으면 `COLLECTION_FAILED`로 처리한다. 마지막 정상 Snapshot은 모든 경우에 유지한다.
 이후 ROOT 검증에 성공하면 source 상태를 다시 사용 가능 상태로 전환한다.
 
 ## 시스템 출력은 저장된 식별자로 제외한다
@@ -95,7 +101,7 @@ status: "Draft"
 - allowlist 속성에 포함된 Relation 대상
 - 현재 page에서 생성되는 `SourceReference` 후보
 
-시작 트리에 있던 page가 수집 중 사라지거나 이동한 정황이 확인되면 후보를 폐기한다. 현재 상태를 판별할 수 없는 API 실패는 `COLLECTION_FAILED`로 종료한다.
+시작 트리에 있던 page가 수집 중 사라지거나 이동한 정황이 확인되면 후보를 폐기한다. 현재 상태를 판별할 수 없는 원격 조회 실패는 `COLLECTION_FAILED`로 종료한다.
 
 ## canonical content는 의미 정보만 안정적으로 직렬화한다
 
@@ -164,7 +170,7 @@ tuple은 `notion_page_id` 기준으로 정렬한다. 정렬된 목록을 페이�
 
 ## 수집기는 실패 상태에서 기존 이력을 수정하지 않는다
 
-`SOURCE_UNSTABLE`과 `COLLECTION_FAILED`는 새 Snapshot을 만들지 않는다. 재시도 횟수, backoff, rate limit 대응은 별도 오류·재시도 계약에서 정의한다.
+`SOURCE_UNSTABLE`과 `COLLECTION_FAILED`는 새 Snapshot을 만들지 않는다. 재시도 횟수, backoff, `ntn` 호출 제한 대응은 별도 오류·재시도 계약에서 정의한다.
 
 `SOURCE_UNAVAILABLE`도 과거 Snapshot을 삭제하거나 수정하지 않는다. ROOT가 다시 정상 상태로 돌아오면 일반 수집 절차로 새 Snapshot 필요 여부를 다시 판정한다.
 

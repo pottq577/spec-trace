@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DS="${1:-37a2c0fc-fd10-8077-8040-000b0d80b854}"
+NTN_BIN="${NTN_BIN:-ntn}"
+DS="${1:-${SPEC_TRACE_NOTION_DATA_SOURCE_ID:-37a2c0fc-fd10-8077-8040-000b0d80b854}}"
 OUTPUT="${2:-docs/notion/workspace-tree.md}"
 
-command -v ntn >/dev/null 2>&1 || {
+command -v "$NTN_BIN" >/dev/null 2>&1 || {
   echo "error: ntn command not found" >&2
   exit 1
 }
@@ -28,14 +29,14 @@ PAGE_COUNT=0
 while true; do
   if [[ -n "$CURSOR" ]]; then
     RESP="$(
-      ntn datasources query "$DS" \
+      "$NTN_BIN" datasources query "$DS" \
         --limit 100 \
         --start-cursor "$CURSOR" \
         --json
     )"
   else
     RESP="$(
-      ntn datasources query "$DS" \
+      "$NTN_BIN" datasources query "$DS" \
         --limit 100 \
         --json
     )"
@@ -119,7 +120,7 @@ if [[ -f "$OUTPUT" ]]; then
 fi
 
 GENERATED_AT="$(TZ=Asia/Seoul date --iso-8601=seconds)"
-NTN_VERSION="$(ntn --version | head -n 1)"
+NTN_VERSION="$("$NTN_BIN" --version | head -n 1)"
 
 {
   cat <<EOF
