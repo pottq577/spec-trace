@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import unittest
@@ -94,6 +95,42 @@ class NotionClientTest(unittest.TestCase):
         self.assertEqual([item["id"] for item in result], ["a", "b"])
         self.assertIn("page_size==100", runner.calls[0][0])
         self.assertIn("start_cursor==next", runner.calls[1][0])
+
+    def test_data_source_query_consumes_pagination(self) -> None:
+        runner = FakeRunner(
+            [
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    '{"results":[{"id":"a"}],"has_more":true,"next_cursor":"next"}',
+                    "",
+                ),
+                subprocess.CompletedProcess(
+                    [],
+                    0,
+                    '{"results":[{"id":"b"}],"has_more":false,"next_cursor":null}',
+                    "",
+                ),
+            ]
+        )
+        client = NotionCliClient("ntn", limiter=NoWaitLimiter(), runner=runner)
+
+        result = client.query_data_source(
+            "12345678-1234-1234-1234-1234567890ab"
+        )
+
+        self.assertEqual([item["id"] for item in result], ["a", "b"])
+        first_command = runner.calls[0][0]
+        second_command = runner.calls[1][0]
+        self.assertIn("-X", first_command)
+        self.assertIn("POST", first_command)
+        first_body = json.loads(first_command[first_command.index("--data") + 1])
+        second_body = json.loads(second_command[second_command.index("--data") + 1])
+        self.assertEqual(first_body, {"page_size": 100})
+        self.assertEqual(
+            second_body,
+            {"page_size": 100, "start_cursor": "next"},
+        )
 
     def test_retryable_get_uses_backoff(self) -> None:
         runner = FakeRunner(

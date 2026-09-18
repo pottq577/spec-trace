@@ -29,6 +29,21 @@ def page(page_id: str, title: str, edited: str = "2026-09-18T00:00:00.000Z", dat
     }
 
 
+def menu_page(
+    page_id: str,
+    title: str,
+    data_source_id: str,
+    parent_page_id: str | None = None,
+) -> dict[str, Any]:
+    item = page(page_id, title, data_source_id=data_source_id)
+    item["properties"]["상위 항목"] = {
+        "id": "parent",
+        "type": "relation",
+        "relation": [{"id": parent_page_id}] if parent_page_id else [],
+    }
+    return item
+
+
 def paragraph(block_id: str, text: str) -> dict[str, Any]:
     return {
         "object": "block",
@@ -80,6 +95,20 @@ class FakeNotion:
         if database_id not in self.databases:
             raise ResourceNotFound(database_id)
         return deepcopy(self.databases[database_id])
+
+    def query_data_source(self, data_source_id: str) -> list[dict[str, Any]]:
+        data_source_id = normalize_notion_id(data_source_id)
+        results = []
+        for item in self.pages.values():
+            parent = item.get("parent") or {}
+            if parent.get("type") != "data_source_id":
+                continue
+            parent_id = normalize_notion_id(
+                str(parent.get("data_source_id") or "")
+            )
+            if parent_id == data_source_id:
+                results.append(deepcopy(item))
+        return sorted(results, key=lambda value: str(value.get("id") or ""))
 
     def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]:
         self._maybe_fail_write()

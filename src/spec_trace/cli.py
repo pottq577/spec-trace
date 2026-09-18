@@ -50,6 +50,13 @@ def build_parser() -> argparse.ArgumentParser:
     repo_add.add_argument("--path", required=True)
     repo_sub.add_parser("list")
 
+    source = sub.add_parser("source")
+    source_sub = source.add_subparsers(dest="source_command", required=True)
+    source_sync = source_sub.add_parser("sync")
+    source_sync.add_argument("--database-id", required=True)
+    source_sync.add_argument("--data-source-id", required=True)
+    source_sync.add_argument("--parent-property", default="상위 항목")
+
     document = sub.add_parser("document")
     document_sub = document.add_subparsers(dest="document_command", required=True)
     document_register = document_sub.add_parser("register")
@@ -154,6 +161,16 @@ def run(args: argparse.Namespace) -> Any:
             return record.__dict__
         if args.repo_command == "list":
             return [record.__dict__ for record in service.list()]
+    if args.command == "source":
+        notion = NotionCliClient.from_environment()
+        service = PlanningDocumentService(workspace.database, notion)
+        if args.source_command == "sync":
+            with WorkspaceLock(workspace):
+                return service.sync_data_source(
+                    args.database_id,
+                    args.data_source_id,
+                    parent_property=args.parent_property,
+                )
     if args.command == "document":
         notion = NotionCliClient.from_environment()
         service = PlanningDocumentService(workspace.database, notion)

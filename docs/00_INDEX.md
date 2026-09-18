@@ -15,7 +15,7 @@ status: "Draft"
 - **대상**: 기획 검토와 구현 기준 확정을 담당하는 개발자
 - **목표**: 필요한 설계 문서를 목적별로 찾아 읽고 전체 업무 흐름과 추적 관계를 설명할 수 있다
 - **범위**: 시스템 정의, 검토 모델, 업무 흐름, 도메인·상태 모델, Notion 입출력, 원문 수집, 변경 분석, MVP 아키텍처, 결정 근거, 후속 설계 범위
-- **현재 경계**: 1차 MVP 구현과 PAT → `ntn` 마이그레이션 완료, 메뉴 데이터 소스 자동 발견은 다음 구현 범위
+- **현재 경계**: 1차 MVP, `ntn` 마이그레이션, 메뉴 source discovery 구현 완료, 실제 Notion E2E 검증은 다음 단계
 - **읽는 순서**: 시스템 정의 → 검토 모델 → 업무 흐름 → 내부 상세 모델 → Notion 입출력 → 원문 수집 실행 → 추적 구조 → 후속 상세 설계
 
 ## 시스템 정의
@@ -53,6 +53,7 @@ status: "Draft"
 Notion 연동 문서는 회사 기획서 구조를 내부 모델과 연결하고 안정적인 원문 Snapshot을 만드는 규칙을 정의한다.
 
 - [Notion 원문 계약](./integration/notion-source-contract.md): 데이터베이스 행 페이지, `/페이지` 하위 페이지, SourceReference, Snapshot, 로컬 미러 분류
+- [Notion source discovery](./integration/notion-source-discovery.md): 메뉴 data source 행 자동 등록, `상위 항목` 관계, 비활성 source 처리
 - [Notion 원문 수집 실행](./integration/notion-source-collection.md): 수집 주기, 이중 트리 검증, canonicalization, hash, Snapshot 확정 결과
 - [Notion 검토 결과 계약](./integration/notion-review-contract.md): ROOT 아래 `개발 검토` 페이지, answer slot, 시스템·기획자 소유권
 - [Notion 동기화 규칙](./integration/notion-sync-rules.md): idempotency, 부분 실패, 삭제와 이동, reconcile, 자기 변경 루프 방지
@@ -96,4 +97,4 @@ MVP 검증 문서는 실제 업무 round trip과 완료 조건을 정의한다.
 
 - [후속 상세 설계 범위](./design/implementation-boundaries.md): 확정된 내부 모델과 Notion 연동 계약, 다음 실행 설계 순서
 
-현재 다음 단계는 `ntn`으로 조회한 메뉴 데이터 소스를 `PlanningDocument` 등록 대상으로 자동 동기화하는 일이다. 실제 Notion E2E 검증과 cron 자동화는 이 연결이 끝난 뒤 진행한다.
+현재 다음 단계는 실제 Notion workspace에서 source discovery와 collection을 E2E로 검증하는 일이다. 검증이 끝난 뒤 cron 기반 주기 실행을 추가한다.

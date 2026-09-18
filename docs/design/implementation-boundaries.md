@@ -115,13 +115,13 @@ MVP는 웹 UI, public API, built-in model provider, 분산 worker를 포함하�
 
 [MVP 구현 계획](../mvp/implementation-plan.md)은 실제 코드를 PATCH-13부터 PATCH-17까지 다섯 단계로 나눈다. 마지막 patch는 fake Notion과 임시 Git repository를 사용한 end-to-end acceptance A부터 H를 자동 검증한다.
 
-## 현재 구현 상태와 다음 연결 범위를 고정한다
+## 현재 구현 상태와 다음 검증 범위를 고정한다
 
-PATCH-13부터 PATCH-17까지의 1차 MVP 실행 경로가 구현됐고, Notion 실사용 adapter는 PAT 직접 호출에서 `ntn` 기반으로 전환됐다. 현재 코드는 수동 `document register`로 등록한 ROOT와 내부 `child_page`를 Snapshot으로 수집한다.
+PATCH-13부터 PATCH-17까지의 1차 MVP 실행 경로, `ntn` 기반 Notion adapter, 메뉴 source discovery가 구현됐다. `source sync`는 data source의 활성 메뉴 행을 `PlanningDocument`로 등록하고 `상위 항목` 관계를 보존한다.
 
-다음 구현 범위는 메뉴 데이터 소스의 행을 자동 발견해 `PlanningDocument` 등록 상태와 동기화하는 기능이다. 이 단계에서 메뉴의 `상위 항목` 관계를 보존하고, 등록된 ROOT 내부 문서는 기존 collector가 계속 재귀 수집한다.
+등록된 ROOT 내부의 실제 `child_page`와 block은 기존 collector가 재귀 수집한다. source discovery와 원문 collection은 같은 Notion page ID를 사용하지만 서로 다른 실행 단계로 유지한다.
 
-실제 Notion E2E 검증과 cron 기반 주기 실행은 source discovery 연결이 끝난 뒤 별도 단계에서 진행한다.
+다음 단계는 실제 Notion workspace에서 source discovery와 collection을 E2E로 검증하는 일이다. cron 기반 주기 실행은 이 검증이 끝난 뒤 별도 patch로 추가한다.
 
 ## 제품 완료 기준은 추적성과 업무 연속성을 함께 만족해야 한다
 

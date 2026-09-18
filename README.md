@@ -70,7 +70,29 @@ export SPEC_TRACE_LIVE_PAGE_ID=your_test_page_id_here
 SPEC_TRACE_NOTION_DATA_SOURCE_ID=your_data_source_id_here ./bin/notion-tree.sh
 ```
 
-이 트리는 메뉴 탐색용 스냅샷이다. `spec-trace collect`는 등록한 ROOT 페이지 본문을 읽고, 페이지 내부의 `child_page`를 깊이 제한 없이 재귀 수집한다.
+이 트리는 메뉴 탐색용 스냅샷이다. 같은 데이터 소스를 `source sync`에 전달하면 메뉴 행을 실제 수집 대상으로 등록할 수 있다.
+
+## 메뉴를 수집 대상으로 동기화한다
+
+메뉴 데이터베이스의 ID와 데이터 소스 ID를 지정해 `PlanningDocument` 등록 상태를 맞춘다:
+
+```bash
+spec-trace source sync \
+  --database-id your_database_id_here \
+  --data-source-id your_data_source_id_here
+```
+
+기본 부모 관계 속성은 `상위 항목`이다. 다른 이름을 쓰는 데이터 소스에서는 `--parent-property`을 지정한다.
+
+`source sync`는 활성 메뉴 행을 등록하고 제목, 데이터 소스 ID, 부모 메뉴 ID를 갱신한다. 이전 sync에서 발견했지만 현재 결과에 없는 메뉴는 `UNAVAILABLE`로 전환한다.
+
+이 명령은 페이지 본문을 수집하지 않는다. 등록 상태를 맞춘 뒤 기존 collector를 실행한다:
+
+```bash
+spec-trace collect --all
+```
+
+각 ROOT 내부의 `child_page`와 그 하위 block은 기존 collector가 깊이 제한 없이 재귀 수집한다.
 
 ## Notion live smoke를 실행한다
 
@@ -98,7 +120,7 @@ spec-trace \
 - 같은 projection을 다시 실행해도 중복 생성하지 않음
 - 시스템이 만든 `개발 검토` 페이지가 새 원문 Snapshot으로 감지되지 않음
 
-## 실제 기획서 하나를 등록한다
+## 실제 기획서 하나를 수동 등록한다
 
 프로젝트에서 사용할 workspace를 초기화한다:
 

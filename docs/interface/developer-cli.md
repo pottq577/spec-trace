@@ -48,6 +48,24 @@ spec-trace repo add --name peoplo --path ../peoplo-backend
 spec-trace repo list
 ```
 
+## source sync가 메뉴 행을 자동 등록한다
+
+메뉴 데이터 소스의 현재 행을 `PlanningDocument`와 동기화하려면 다음 명령을 사용한다:
+
+```bash
+spec-trace source sync \
+  --database-id notion_database_id_here \
+  --data-source-id notion_data_source_id_here
+```
+
+명령은 데이터 소스가 지정한 database에 속하는지 확인하고 활성 page 행을 등록한다. 기존 행은 제목, data source ID, `상위 항목` 관계를 갱신한다.
+
+이전에 같은 data source에서 발견했지만 현재 query에 없는 문서는 `UNAVAILABLE`로 전환한다. 수동 등록한 문서는 data source ID가 없으므로 이 처리에 포함하지 않는다.
+
+기본 부모 relation 이름은 `상위 항목`이다. 다른 속성명을 사용하면 `--parent-property property_name_here`를 지정한다.
+
+`source sync`는 원문 Snapshot을 만들지 않는다. 등록 상태를 맞춘 뒤 `collect --all`이 ROOT와 내부 `child_page`를 수집한다.
+
 ## document register가 Notion ROOT를 등록한다
 
 모니터링 시작점은 다음 명령으로 등록한다:

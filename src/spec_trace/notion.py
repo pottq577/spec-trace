@@ -38,6 +38,8 @@ class NotionPort(Protocol):
 
     def retrieve_database(self, database_id: str) -> dict[str, Any]: ...
 
+    def query_data_source(self, data_source_id: str) -> list[dict[str, Any]]: ...
+
     def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]: ...
 
     def append_block_children(
@@ -119,6 +121,29 @@ class NotionCliClient:
             "GET", f"v1/databases/{normalize_notion_id(database_id)}"
         )
 
+    def query_data_source(self, data_source_id: str) -> list[dict[str, Any]]:
+        normalized = normalize_notion_id(data_source_id)
+        results: list[dict[str, Any]] = []
+        cursor: str | None = None
+        while True:
+            body: dict[str, Any] = {"page_size": 100}
+            if cursor:
+                body["start_cursor"] = cursor
+            payload = self._request_json(
+                "POST",
+                f"v1/data_sources/{normalized}/query",
+                body,
+                retryable=True,
+            )
+            results.extend(payload.get("results", []))
+            if not payload.get("has_more"):
+                return results
+            cursor = payload.get("next_cursor")
+            if not cursor:
+                raise ExternalServiceError(
+                    "Notion pagination returned has_more without next_cursor"
+                )
+
     def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]:
         return self._request_json(
             "POST",
@@ -185,6 +210,7 @@ class NotionCliClient:
         body: dict[str, Any] | None = None,
         *,
         query: list[str] | None = None,
+        retryable: bool | None = None,
     ) -> dict[str, Any]:
         command = [
             self.binary,
@@ -217,10 +243,11 @@ class NotionCliClient:
             last_error = ExternalServiceError(
                 f"ntn request failed with exit {completed.returncode}: {message}"
             )
-            retryable = method == "GET" and any(
+            retry_enabled = method == "GET" if retryable is None else retryable
+            should_retry = retry_enabled and any(
                 marker in lowered for marker in RETRYABLE_STATUS_MARKERS
             )
-            if not retryable or attempt == self.max_attempts:
+            if not should_retry or attempt == self.max_attempts:
                 raise last_error
             self.sleeper(self._retry_delay(attempt))
         raise last_error or ExternalServiceError("ntn request failed")
