@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from importlib import resources
 from pathlib import Path
 
 from spec_trace.workspace import Workspace
@@ -20,4 +21,9 @@ class WorkspaceTest(unittest.TestCase):
                 ).fetchone()["c"]
             finally:
                 connection.close()
-            self.assertEqual(count, 2)
+            migration_count = sum(
+                1
+                for item in resources.files("spec_trace.migrations").iterdir()
+                if item.name.endswith(".sql")
+            )
+            self.assertEqual(count, migration_count)
