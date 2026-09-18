@@ -304,11 +304,23 @@ $('saveSource').addEventListener('click', async () => {
 });
 $('cycle').addEventListener('click', async () => {
   $('cycle').disabled = true;
-  $('cycleStatus').textContent = '실행 중…';
+  $('cycleStatus').textContent = '전체 최신화를 시작하는 중…';
   try {
-    const result = await api('/api/cycle', {method:'POST', body:'{}'});
+    let job = await api('/api/cycle', {method:'POST', body:'{}'});
+    while (job.status === 'RUNNING') {
+      $('cycleStatus').textContent = '실행 중… 브라우저를 닫아도 서버에서 계속 진행됩니다.';
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      job = await api('/api/cycle');
+    }
+    if (job.status === 'FAILED') {
+      throw new Error(job.error || '전체 최신화에 실패했습니다.');
+    }
+    const result = job.result || {};
     const sync = result.source_sync || {};
-    $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 ${result.collections.length}개 · 구조화 답변 ${result.answers.reduce((n,x)=>n+x.answers_collected,0)}건 · 문서 답변 ${result.review_responses.length}건`;
+    const collections = result.collections || [];
+    const answers = result.answers || [];
+    const reviewResponses = result.review_responses || [];
+    $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 ${collections.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건`;
     await load();
   } catch (e) { $('cycleStatus').textContent = e.message; }
   finally { $('cycle').disabled = false; }
@@ -326,11 +338,15 @@ class WebApplication:
         *,
         notion_factory: Callable[[], NotionPort] = NotionCliClient.from_environment,
         browse_root: Path | None = None,
+        cycle_runner: Callable[[], dict[str, Any]] | None = None,
     ):
         self.workspace = workspace
         self.settings = SettingsService(workspace)
         self.notion_factory = notion_factory
         self.browse_root = (browse_root or self._default_browse_root()).resolve()
+        self.cycle_runner = cycle_runner
+        self._cycle_guard = threading.Lock()
+        self._cycle_job: dict[str, Any] = {"status": "IDLE", "result": None, "error": None}
 
     def state(self) -> dict[str, Any]:
         settings = self.settings.load()
@@ -421,7 +437,47 @@ class WebApplication:
                 )
         return {"settings": self.settings.load().to_dict()}
 
+    def start_cycle(self) -> dict[str, Any]:
+        with self._cycle_guard:
+            if self._cycle_job["status"] == "RUNNING":
+                return dict(self._cycle_job)
+            self._cycle_job = {"status": "RUNNING", "result": None, "error": None}
+            thread = threading.Thread(
+                target=self._run_cycle_job,
+                name="spec-trace-cycle",
+                daemon=True,
+            )
+            thread.start()
+            return dict(self._cycle_job)
+
+    def cycle_status(self) -> dict[str, Any]:
+        with self._cycle_guard:
+            return dict(self._cycle_job)
+
+    def _run_cycle_job(self) -> None:
+        try:
+            result = self.run_cycle()
+        except SpecTraceError as exc:
+            with self._cycle_guard:
+                self._cycle_job = {
+                    "status": "FAILED",
+                    "result": None,
+                    "error": str(exc),
+                }
+        except Exception as exc:
+            with self._cycle_guard:
+                self._cycle_job = {
+                    "status": "FAILED",
+                    "result": None,
+                    "error": f"internal error: {type(exc).__name__}",
+                }
+        else:
+            with self._cycle_guard:
+                self._cycle_job = {"status": "COMPLETED", "result": result, "error": None}
+
     def run_cycle(self) -> dict[str, Any]:
+        if self.cycle_runner is not None:
+            return self.cycle_runner()
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
             return RuntimeService(self.workspace, notion).run_cycle()
@@ -529,8 +585,14 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == "/":
             self._send_text(HTML, "text/html; charset=utf-8")
             return
+        if path == "/favicon.ico":
+            self._send_no_content()
+            return
         if path == "/api/state":
             self._handle_json(self.app.state)
+            return
+        if path == "/api/cycle":
+            self._handle_json(self.app.cycle_status)
             return
         if path == "/api/directories":
             query = parse_qs(parsed.query)
@@ -545,8 +607,7 @@ class RequestHandler(BaseHTTPRequestHandler):
             self._handle_json(lambda: self.app.save_settings(self._read_json()))
             return
         if path == "/api/cycle":
-            self._read_json()
-            self._handle_json(self.app.run_cycle)
+            self._handle_json(self.app.start_cycle)
             return
         if path == "/api/export":
             payload = self._read_json()
@@ -615,7 +676,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(payload)))
         self.end_headers()
-        self.wfile.write(payload)
+        try:
+            self.wfile.write(payload)
+        except (BrokenPipeError, ConnectionResetError):
+            return
+
+    def _send_no_content(self) -> None:
+        self.send_response(HTTPStatus.NO_CONTENT)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _send_text(self, value: str, content_type: str) -> None:
         payload = value.encode("utf-8")

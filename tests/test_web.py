@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -98,6 +100,63 @@ class WebApplicationTest(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             app.browse_directories(str(outside))
+
+    def test_cycle_runs_in_background_and_reuses_running_job(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+        calls: list[int] = []
+
+        def cycle_runner() -> dict[str, object]:
+            calls.append(1)
+            started.set()
+            release.wait(2.0)
+            return {
+                "source_sync": {"status": "COMPLETED", "active_pages": 2},
+                "recovery": [],
+                "collections": [],
+                "answers": [],
+                "review_responses": [],
+            }
+
+        app = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+            cycle_runner=cycle_runner,
+        )
+
+        first = app.start_cycle()
+        self.assertEqual(first["status"], "RUNNING")
+        self.assertTrue(started.wait(1.0))
+
+        second = app.start_cycle()
+        self.assertEqual(second["status"], "RUNNING")
+        self.assertEqual(len(calls), 1)
+
+        release.set()
+        deadline = time.monotonic() + 2.0
+        status = app.cycle_status()
+        while status["status"] == "RUNNING" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            status = app.cycle_status()
+
+        self.assertEqual(status["status"], "COMPLETED")
+        self.assertEqual(status["result"]["source_sync"]["active_pages"], 2)
+        self.assertEqual(len(calls), 1)
+
+    def test_cycle_failure_is_exposed_as_job_status(self) -> None:
+        def cycle_runner() -> dict[str, object]:
+            raise RuntimeError("boom")
+
+        app = WebApplication(self.workspace, cycle_runner=cycle_runner)
+        app.start_cycle()
+        deadline = time.monotonic() + 2.0
+        status = app.cycle_status()
+        while status["status"] == "RUNNING" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            status = app.cycle_status()
+
+        self.assertEqual(status["status"], "FAILED")
+        self.assertEqual(status["error"], "internal error: RuntimeError")
 
 
 if __name__ == "__main__":
