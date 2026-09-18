@@ -122,6 +122,28 @@ class FakeNotion:
         self.children.setdefault(parent_page_id, []).append(child_page(page_id, title))
         return deepcopy(created)
 
+    def update_page_title(self, page_id: str, title: str) -> dict[str, Any]:
+        self._maybe_fail_write()
+        page_id = normalize_notion_id(page_id)
+        if page_id not in self.pages:
+            raise ResourceNotFound(page_id)
+        title_prop = self.pages[page_id]["properties"]["Name"]
+        title_prop["title"] = [
+            {"type": "text", "plain_text": title, "text": {"content": title}}
+        ]
+        return deepcopy(self.pages[page_id])
+
+    def delete_block(self, block_id: str) -> dict[str, Any]:
+        self._maybe_fail_write()
+        block_id = normalize_notion_id(block_id)
+        for blocks in self.children.values():
+            for index, item in enumerate(blocks):
+                if normalize_notion_id(str(item.get("id"))) == block_id:
+                    removed = blocks.pop(index)
+                    removed["archived"] = True
+                    return deepcopy(removed)
+        raise ResourceNotFound(block_id)
+
     def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> list[dict[str, Any]]:
         self._maybe_fail_write()
         block_id = normalize_notion_id(block_id)

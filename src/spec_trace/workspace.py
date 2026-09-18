@@ -22,6 +22,10 @@ class Workspace:
         return self.state_dir / "spec-trace.db"
 
     @property
+    def config_path(self) -> Path:
+        return self.state_dir / "config.json"
+
+    @property
     def content_dir(self) -> Path:
         return self.state_dir / "content"
 

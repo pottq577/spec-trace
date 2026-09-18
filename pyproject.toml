@@ -11,6 +11,7 @@ dependencies = []
 
 [project.scripts]
 spec-trace = "spec_trace.cli:main"
+spec-trace-web = "spec_trace.web:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

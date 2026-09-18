@@ -42,6 +42,10 @@ class NotionPort(Protocol):
 
     def create_child_page(self, parent_page_id: str, title: str) -> dict[str, Any]: ...
 
+    def update_page_title(self, page_id: str, title: str) -> dict[str, Any]: ...
+
+    def delete_block(self, block_id: str) -> dict[str, Any]: ...
+
     def append_block_children(
         self, block_id: str, children: list[dict[str, Any]]
     ) -> list[dict[str, Any]]: ...
@@ -162,6 +166,25 @@ class NotionCliClient:
                     }
                 },
             },
+        )
+
+    def update_page_title(self, page_id: str, title: str) -> dict[str, Any]:
+        return self._request_json(
+            "PATCH",
+            f"v1/pages/{normalize_notion_id(page_id)}",
+            {
+                "properties": {
+                    "title": {
+                        "type": "title",
+                        "title": [{"type": "text", "text": {"content": title}}],
+                    }
+                }
+            },
+        )
+
+    def delete_block(self, block_id: str) -> dict[str, Any]:
+        return self._request_json(
+            "DELETE", f"v1/blocks/{normalize_notion_id(block_id)}"
         )
 
     def append_block_children(

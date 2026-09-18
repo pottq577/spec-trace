@@ -5,9 +5,12 @@ import time
 from typing import Any, Callable
 
 from .collector import SourceCollector
+from .config import SettingsService
 from .errors import ResourceNotFound, SpecTraceError, ValidationError
 from .notion import NotionPort
+from .planning_documents import PlanningDocumentService
 from .projection import ProjectionService
+from .review_documents import ReviewDocumentService
 from .workspace import Workspace
 
 
@@ -198,6 +201,7 @@ class RuntimeService:
             rows = connection.execute(
                 """
                 SELECT planning_document_id FROM planning_documents
+                WHERE source_status = 'AVAILABLE'
                 ORDER BY created_at, planning_document_id
                 """
             ).fetchall()
@@ -257,10 +261,58 @@ class RuntimeService:
                 )
         return results
 
+    def collect_answers(self) -> list[dict[str, Any]]:
+        connection = self.database.connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT planning_document_id FROM planning_documents
+                WHERE source_status = 'AVAILABLE'
+                ORDER BY created_at, planning_document_id
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        projection = ProjectionService(self.database, self.notion)
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            count = projection.collect_answers(row["planning_document_id"])
+            results.append(
+                {
+                    "planning_document_id": row["planning_document_id"],
+                    "answers_collected": count,
+                }
+            )
+        return results
+
+    def sync_source(self) -> dict[str, Any]:
+        settings = SettingsService(self.workspace).load()
+        source = settings.notion_source
+        if source is None:
+            return {"status": "SKIPPED", "reason": "SOURCE_NOT_CONFIGURED"}
+        result = PlanningDocumentService(self.database, self.notion).sync_data_source(
+            source.database_id,
+            source.data_source_id,
+            parent_property=source.parent_property,
+        )
+        return {"status": "COMPLETED", **result}
+
     def run_cycle(self) -> dict[str, Any]:
+        source_sync = self.sync_source()
         recovery = self.reconcile_pending()
         collections = self.collect_all()
-        return {"recovery": recovery, "collections": collections}
+        answers = self.collect_answers()
+        review_responses = ReviewDocumentService(
+            self.workspace, self.notion
+        ).collect_responses()
+        return {
+            "source_sync": source_sync,
+            "recovery": recovery,
+            "collections": collections,
+            "answers": answers,
+            "review_responses": review_responses,
+        }
 
     @staticmethod
     def validate_interval(interval: float) -> float:
