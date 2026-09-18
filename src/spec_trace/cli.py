@@ -6,8 +6,9 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from .analysis import AnalysisService
 from .collector import SourceCollector
-from .errors import SpecTraceError
+from .errors import SpecTraceError, ValidationError
 from .notion import NotionHttpClient
 from .planning_documents import PlanningDocumentService
 from .repositories import RepositoryService
@@ -51,6 +52,27 @@ def build_parser() -> argparse.ArgumentParser:
 
     collect = sub.add_parser("collect")
     collect.add_argument("--document", required=True)
+
+    analysis = sub.add_parser("analysis")
+    analysis_sub = analysis.add_subparsers(dest="analysis_command", required=True)
+    analysis_export = analysis_sub.add_parser("export")
+    analysis_export.add_argument("--type", required=True, choices=["source-diff", "impact", "review"])
+    analysis_export.add_argument("--change-set")
+    analysis_export.add_argument("--document")
+    analysis_import = analysis_sub.add_parser("import")
+    analysis_import.add_argument("path")
+
+    proposal = sub.add_parser("proposal")
+    proposal_sub = proposal.add_subparsers(dest="proposal_command", required=True)
+    proposal_show = proposal_sub.add_parser("show")
+    proposal_show.add_argument("proposal_id")
+    proposal_review = proposal_sub.add_parser("review")
+    proposal_review.add_argument("--proposal", required=True)
+    proposal_review.add_argument("--candidate", required=True)
+    proposal_review.add_argument("--action", required=True, choices=["adopt", "edit-and-adopt", "reject"])
+    proposal_review.add_argument("--payload")
+    proposal_review.add_argument("--reason")
+    proposal_review.add_argument("--reviewer", default="developer")
     return parser
 
 
@@ -82,6 +104,32 @@ def run(args: argparse.Namespace) -> Any:
         with WorkspaceLock(workspace):
             result = service.collect(args.document)
         return result.__dict__
+    if args.command in {"analysis", "proposal"}:
+        service = AnalysisService(
+            workspace.database, workspace.content_store, workspace.root, workspace.analysis_requests_dir
+        )
+        if args.command == "analysis" and args.analysis_command == "export":
+            subject = args.document if args.type == "review" else args.change_set
+            if not subject:
+                parser_name = "--document" if args.type == "review" else "--change-set"
+                raise ValidationError(f"{parser_name} is required for {args.type}")
+            path = service.export_packet(args.type, subject)
+            return {"path": str(path)}
+        if args.command == "analysis" and args.analysis_command == "import":
+            with WorkspaceLock(workspace):
+                record = service.import_proposal(Path(args.path))
+            return record.__dict__
+        if args.command == "proposal" and args.proposal_command == "show":
+            return service.show(args.proposal_id)
+        if args.command == "proposal" and args.proposal_command == "review":
+            reviewed_payload = None
+            if args.payload:
+                reviewed_payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+            with WorkspaceLock(workspace):
+                return service.review_candidate(
+                    args.proposal, args.candidate, args.action, reviewer=args.reviewer,
+                    reviewed_payload=reviewed_payload, reason=args.reason
+                )
     raise AssertionError("unreachable")
 
 

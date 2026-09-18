@@ -88,6 +88,23 @@ class RepositoryService:
         finally:
             connection.close()
 
+    def resolve_head(self, repository_id: str) -> str:
+        repository = self.get(repository_id)
+        return self._git(Path(repository.local_path), "rev-parse", "HEAD")
+
+    def verify_commit(self, repository_id: str, commit_sha: str) -> str:
+        repository = self.get(repository_id)
+        resolved = self._git(Path(repository.local_path), "rev-parse", f"{commit_sha}^{{commit}}")
+        return resolved
+
+    def path_exists_at_commit(self, repository_id: str, commit_sha: str, path: str) -> bool:
+        repository = self.get(repository_id)
+        try:
+            self._git(Path(repository.local_path), "cat-file", "-e", f"{commit_sha}:{path}")
+            return True
+        except ValidationError:
+            return False
+
     def get(self, repository_id: str) -> RepositoryRecord:
         connection = self.database.connect()
         try:
