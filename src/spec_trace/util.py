@@ -12,11 +12,7 @@ def new_id() -> str:
 
 
 def utc_now() -> str:
-    return (
-        datetime.now(UTC)
-        .isoformat(timespec="microseconds")
-        .replace("+00:00", "Z")
-    )
+    return datetime.now(UTC).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
 def canonical_json_bytes(value: Any) -> bytes:
