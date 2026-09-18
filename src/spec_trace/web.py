@@ -8,7 +8,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from .config import SettingsService
 from .errors import SpecTraceError, ValidationError
@@ -38,6 +38,19 @@ label { display: block; margin: 12px 0 5px; font-size: 13px; color: #475467; }
 input { width: 100%; box-sizing: border-box; border: 1px solid #d0d5dd; border-radius: 8px; padding: 10px 11px; font: inherit; }
 button { border: 0; border-radius: 8px; padding: 10px 14px; font: inherit; cursor: pointer; background: #17191c; color: white; }
 button.secondary { background: #eef0f3; color: #17191c; }
+button:disabled { cursor: default; opacity: .55; }
+.input-row { display: flex; gap: 8px; align-items: center; }
+.input-row input { flex: 1; }
+dialog { width: min(680px, calc(100vw - 40px)); border: 0; border-radius: 14px; padding: 0; box-shadow: 0 24px 64px rgba(0,0,0,.24); }
+dialog::backdrop { background: rgba(17,24,39,.42); }
+.dialog-body { padding: 18px; }
+.dialog-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+.dialog-head h3 { margin: 0; font-size: 17px; }
+.folder-list { border: 1px solid #e5e7eb; border-radius: 10px; max-height: 420px; overflow: auto; margin-top: 12px; }
+.folder-row { width: 100%; display: flex; align-items: center; gap: 8px; background: #fff; color: #17191c; text-align: left; border-radius: 0; border-bottom: 1px solid #eef0f3; padding: 10px 12px; }
+.folder-row:last-child { border-bottom: 0; }
+.folder-row:hover { background: #f6f7f9; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
 .status { min-height: 22px; margin-top: 12px; color: #475467; font-size: 13px; white-space: pre-wrap; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
@@ -73,7 +86,10 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     <section class="card">
       <h2>로컬 문서 저장 위치</h2>
       <label for="exportRoot">문서 저장 루트</label>
-      <input id="exportRoot" placeholder="/home/.../PEOPLO/docs/PRD_Notion">
+      <div class="input-row">
+        <input id="exportRoot" placeholder="/home/.../PEOPLO/docs/PRD_Notion">
+        <button class="secondary" id="chooseExport" type="button">폴더 선택</button>
+      </div>
       <div class="path" id="suggestion"></div>
       <div class="actions"><button id="saveExport">저장</button></div>
       <div id="exportStatus" class="status"></div>
@@ -107,8 +123,24 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     </section>
   </div>
 </main>
+<dialog id="folderDialog">
+  <div class="dialog-body">
+    <div class="dialog-head">
+      <h3>문서 저장 폴더 선택</h3>
+      <button class="secondary mini" id="closeFolderDialog" type="button">닫기</button>
+    </div>
+    <div class="path" id="folderPath"></div>
+    <div class="folder-list" id="folderList"></div>
+    <div id="folderStatus" class="status"></div>
+    <div class="dialog-actions">
+      <button class="secondary" id="folderUp" type="button">상위 폴더</button>
+      <button id="selectFolder" type="button">이 폴더 선택</button>
+    </div>
+  </div>
+</dialog>
 <script>
 let state = null;
+let folderState = null;
 const $ = (id) => document.getElementById(id);
 async function api(path, options={}) {
   const response = await fetch(path, {headers:{'Content-Type':'application/json'}, ...options});
@@ -127,6 +159,48 @@ async function load() {
   $('suggestion').textContent = state.suggested_export_root ? `자동 제안: ${state.suggested_export_root}` : '';
   renderTree();
 }
+
+async function browseFolders(path='') {
+  $('folderStatus').textContent = '폴더를 불러오는 중…';
+  try {
+    const query = path ? `?path=${encodeURIComponent(path)}` : '';
+    folderState = await api(`/api/directories${query}`);
+    $('folderPath').textContent = folderState.path;
+    $('folderUp').disabled = !folderState.parent;
+    const list = $('folderList');
+    list.innerHTML = '';
+    if (!folderState.directories.length) {
+      const empty = document.createElement('div');
+      empty.className = 'status';
+      empty.style.padding = '12px';
+      empty.textContent = '하위 폴더가 없습니다.';
+      list.appendChild(empty);
+    } else {
+      for (const directory of folderState.directories) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'folder-row';
+        button.textContent = `📁 ${directory.name}`;
+        button.addEventListener('click', () => browseFolders(directory.path));
+        list.appendChild(button);
+      }
+    }
+    $('folderStatus').textContent = '';
+    return true;
+  } catch (e) {
+    $('folderStatus').textContent = e.message;
+    return false;
+  }
+}
+async function openFolderPicker() {
+  const dialog = $('folderDialog');
+  if (!dialog.open) dialog.showModal();
+  const current = $('exportRoot').value.trim();
+  const initial = current || state.settings?.export_root || state.suggested_export_root || state.browse_root || '';
+  const loaded = await browseFolders(initial);
+  if (!loaded && initial !== state.browse_root) await browseFolders(state.browse_root || '');
+}
+
 function nodeHtml(node) {
   const badge = node.source_status === 'AVAILABLE'
     ? '<span class="badge">AVAILABLE</span>'
@@ -203,6 +277,15 @@ $('collectResponses').addEventListener('click', async () => {
     $('reviewStatus').textContent = result.length ? result.map((item) => `회수됨: ${item.path}`).join('\n') : '새 기획자 답변이 없습니다.';
   } catch (e) { $('reviewStatus').textContent = e.message; }
 });
+$('chooseExport').addEventListener('click', openFolderPicker);
+$('closeFolderDialog').addEventListener('click', () => $('folderDialog').close());
+$('folderUp').addEventListener('click', () => { if (folderState?.parent) browseFolders(folderState.parent); });
+$('selectFolder').addEventListener('click', () => {
+  if (!folderState?.path) return;
+  $('exportRoot').value = folderState.path;
+  $('folderDialog').close();
+  $('exportStatus').textContent = '폴더를 선택했습니다. 저장을 눌러 적용하세요.';
+});
 $('search').addEventListener('input', renderTree);
 $('refresh').addEventListener('click', load);
 $('saveExport').addEventListener('click', async () => {
@@ -242,18 +325,78 @@ class WebApplication:
         workspace: Workspace,
         *,
         notion_factory: Callable[[], NotionPort] = NotionCliClient.from_environment,
+        browse_root: Path | None = None,
     ):
         self.workspace = workspace
         self.settings = SettingsService(workspace)
         self.notion_factory = notion_factory
+        self.browse_root = (browse_root or self._default_browse_root()).resolve()
 
     def state(self) -> dict[str, Any]:
         settings = self.settings.load()
         return {
             "settings": settings.to_dict(),
             "suggested_export_root": self.settings.suggested_export_root(),
+            "browse_root": str(self.browse_root),
             "documents": self._document_tree(),
         }
+
+    def browse_directories(self, path: str | None = None) -> dict[str, Any]:
+        root = self.browse_root
+        if not root.exists() or not root.is_dir():
+            raise ValidationError(f"filesystem browse root is not a directory: {root}")
+
+        requested = str(path or "").strip()
+        candidate = Path(requested).expanduser() if requested else root
+        if not candidate.is_absolute():
+            candidate = root / candidate
+        try:
+            current = candidate.resolve(strict=True)
+        except (FileNotFoundError, OSError) as exc:
+            raise ValidationError(f"directory does not exist: {candidate}") from exc
+        if not current.is_dir():
+            raise ValidationError(f"path is not a directory: {current}")
+        if current != root and not current.is_relative_to(root):
+            raise ValidationError(f"directory is outside browse root: {root}")
+
+        directories: list[dict[str, str]] = []
+        try:
+            children = sorted(current.iterdir(), key=lambda value: value.name.casefold())
+        except OSError as exc:
+            raise ValidationError(f"cannot read directory: {current}") from exc
+        for child in children:
+            if child.name.startswith("."):
+                continue
+            try:
+                resolved = child.resolve(strict=True)
+            except OSError:
+                continue
+            if not resolved.is_dir():
+                continue
+            if resolved != root and not resolved.is_relative_to(root):
+                continue
+            directories.append({"name": child.name, "path": str(resolved)})
+
+        parent: str | None = None
+        if current != root:
+            resolved_parent = current.parent.resolve()
+            if resolved_parent == root or resolved_parent.is_relative_to(root):
+                parent = str(resolved_parent)
+        return {
+            "root": str(root),
+            "path": str(current),
+            "parent": parent,
+            "directories": directories,
+        }
+
+    def _default_browse_root(self) -> Path:
+        workspace_parent = self.workspace.root.parent
+        if workspace_parent.name == "workspaces" and workspace_parent.is_dir():
+            return workspace_parent
+        home_workspaces = Path.home() / "workspaces"
+        if home_workspaces.is_dir():
+            return home_workspaces
+        return Path.home()
 
     def save_settings(self, payload: dict[str, Any]) -> dict[str, Any]:
         database_id = str(payload.get("database_id") or "").strip()
@@ -381,12 +524,18 @@ class RequestHandler(BaseHTTPRequestHandler):
     app: WebApplication
 
     def do_GET(self) -> None:
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
         if path == "/":
             self._send_text(HTML, "text/html; charset=utf-8")
             return
         if path == "/api/state":
             self._handle_json(self.app.state)
+            return
+        if path == "/api/directories":
+            query = parse_qs(parsed.query)
+            requested = (query.get("path") or [""])[0]
+            self._handle_json(lambda: self.app.browse_directories(requested))
             return
         self.send_error(HTTPStatus.NOT_FOUND)
 
