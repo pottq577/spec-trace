@@ -1,2 +1,7 @@
 docs/internal
 patch/
+
+__pycache__/
+*.py[cod]
+.venv/
+.spec-trace/
