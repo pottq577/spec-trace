@@ -31,9 +31,7 @@ class FakeRunner:
 class NotionClientTest(unittest.TestCase):
     def test_normalize_notion_id_accepts_uuid_format(self) -> None:
         value = "12345678-1234-1234-1234-1234567890ab"
-        self.assertEqual(
-            normalize_notion_id(value), "123456781234123412341234567890ab"
-        )
+        self.assertEqual(normalize_notion_id(value), "123456781234123412341234567890ab")
 
     def test_from_environment_uses_ntn_session_configuration(self) -> None:
         with (
@@ -88,9 +86,7 @@ class NotionClientTest(unittest.TestCase):
         )
         client = NotionCliClient("ntn", limiter=NoWaitLimiter(), runner=runner)
 
-        result = client.list_block_children(
-            "12345678-1234-1234-1234-1234567890ab"
-        )
+        result = client.list_block_children("12345678-1234-1234-1234-1234567890ab")
 
         self.assertEqual([item["id"] for item in result], ["a", "b"])
         self.assertIn("page_size==100", runner.calls[0][0])
@@ -115,9 +111,7 @@ class NotionClientTest(unittest.TestCase):
         )
         client = NotionCliClient("ntn", limiter=NoWaitLimiter(), runner=runner)
 
-        result = client.query_data_source(
-            "12345678-1234-1234-1234-1234567890ab"
-        )
+        result = client.query_data_source("12345678-1234-1234-1234-1234567890ab")
 
         self.assertEqual([item["id"] for item in result], ["a", "b"])
         first_command = runner.calls[0][0]
@@ -160,9 +154,7 @@ class NotionClientTest(unittest.TestCase):
         client = NotionCliClient("ntn", limiter=NoWaitLimiter(), runner=runner)
 
         with self.assertRaises(ExternalServiceError):
-            client.create_child_page(
-                "123456781234123412341234567890ab", "개발 검토"
-            )
+            client.create_child_page("123456781234123412341234567890ab", "개발 검토")
 
         self.assertEqual(len(runner.calls), 1)
 

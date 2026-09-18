@@ -5,14 +5,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, notion_id, page, paragraph
+
 from spec_trace.analysis import AnalysisService
 from spec_trace.collector import SourceCollector
 from spec_trace.errors import StateConflict
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.util import sha256_text
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, notion_id, page, paragraph
 
 
 class AnalysisServiceTest(unittest.TestCase):
@@ -24,7 +24,11 @@ class AnalysisServiceTest(unittest.TestCase):
         self.data_source_id = notion_id(801)
         self.root_id = notion_id(10)
         self.fake = FakeNotion(
-            pages={self.root_id: page(self.root_id, "근태정책", data_source_id=self.data_source_id)},
+            pages={
+                self.root_id: page(
+                    self.root_id, "근태정책", data_source_id=self.data_source_id
+                )
+            },
             children={self.root_id: [paragraph(notion_id(1001), "주 40시간")]},
         )
         self.fake.root_page_id = self.root_id
@@ -32,9 +36,9 @@ class AnalysisServiceTest(unittest.TestCase):
             "id": self.database_id,
             "data_sources": [{"id": self.data_source_id, "name": "기획"}],
         }
-        self.document = PlanningDocumentService(self.workspace.database, self.fake).register(
-            self.database_id, self.root_id
-        )
+        self.document = PlanningDocumentService(
+            self.workspace.database, self.fake
+        ).register(self.database_id, self.root_id)
         self.collector = SourceCollector(
             self.workspace.database, self.workspace.content_store, self.fake
         )
@@ -53,7 +57,9 @@ class AnalysisServiceTest(unittest.TestCase):
         self.temp.cleanup()
 
     def _source_diff_response(self) -> Path:
-        packet_path = self.service.export_packet("SOURCE_DIFF", self.changed.change_set_id)
+        packet_path = self.service.export_packet(
+            "SOURCE_DIFF", self.changed.change_set_id
+        )
         packet = json.loads(packet_path.read_text(encoding="utf-8"))
         connection = self.workspace.database.connect()
         try:
@@ -75,14 +81,18 @@ class AnalysisServiceTest(unittest.TestCase):
                 "source_evidence": [
                     {
                         "side": "BASELINE",
-                        "source_page_snapshot_id": physical["baseline_source_page_snapshot_id"],
+                        "source_page_snapshot_id": physical[
+                            "baseline_source_page_snapshot_id"
+                        ],
                         "block_path": ["blocks", 0],
                         "field": "paragraph.rich_text",
                         "quote_hash": sha256_text("주 40시간"),
                     },
                     {
                         "side": "TARGET",
-                        "source_page_snapshot_id": physical["target_source_page_snapshot_id"],
+                        "source_page_snapshot_id": physical[
+                            "target_source_page_snapshot_id"
+                        ],
                         "block_path": ["blocks", 0],
                         "field": "paragraph.rich_text",
                         "quote_hash": sha256_text("주 35시간"),
@@ -98,12 +108,16 @@ class AnalysisServiceTest(unittest.TestCase):
         proposal = self.service.import_proposal(self._source_diff_response())
         connection = self.workspace.database.connect()
         try:
-            before = connection.execute("SELECT COUNT(*) AS c FROM change_items").fetchone()["c"]
+            before = connection.execute(
+                "SELECT COUNT(*) AS c FROM change_items"
+            ).fetchone()["c"]
         finally:
             connection.close()
         self.assertEqual(before, 0)
 
-        result = self.service.review_candidate(proposal.analysis_proposal_id, "change-1", "ADOPT")
+        result = self.service.review_candidate(
+            proposal.analysis_proposal_id, "change-1", "ADOPT"
+        )
         self.assertIn("change_item_id", result["created"])
         connection = self.workspace.database.connect()
         try:
@@ -119,11 +133,15 @@ class AnalysisServiceTest(unittest.TestCase):
 
     def test_impact_adoption_creates_impact_link(self) -> None:
         source = self.service.import_proposal(self._source_diff_response())
-        adopted = self.service.review_candidate(source.analysis_proposal_id, "change-1", "ADOPT")
+        adopted = self.service.review_candidate(
+            source.analysis_proposal_id, "change-1", "ADOPT"
+        )
         change_item_id = adopted["created"]["change_item_id"]
 
         packet = json.loads(
-            self.service.export_packet("IMPACT", self.changed.change_set_id).read_text(encoding="utf-8")
+            self.service.export_packet("IMPACT", self.changed.change_set_id).read_text(
+                encoding="utf-8"
+            )
         )
         response = packet["expected_output"]
         response["producer"] = {"type": "AI", "ref": "test-agent"}
@@ -144,12 +162,16 @@ class AnalysisServiceTest(unittest.TestCase):
         path = self.workspace.analysis_responses_dir / "impact.json"
         path.write_text(json.dumps(response, ensure_ascii=False), encoding="utf-8")
         proposal = self.service.import_proposal(path)
-        reviewed = self.service.review_candidate(proposal.analysis_proposal_id, "impact-1", "ADOPT")
+        reviewed = self.service.review_candidate(
+            proposal.analysis_proposal_id, "impact-1", "ADOPT"
+        )
         self.assertIn("impact_link_id", reviewed["created"])
 
     def test_review_adoption_creates_finding_with_evidence(self) -> None:
         packet = json.loads(
-            self.service.export_packet("REVIEW", self.document.planning_document_id).read_text(encoding="utf-8")
+            self.service.export_packet(
+                "REVIEW", self.document.planning_document_id
+            ).read_text(encoding="utf-8")
         )
         response = packet["expected_output"]
         response["producer"] = {"type": "AI", "ref": "test-agent"}
@@ -175,7 +197,9 @@ class AnalysisServiceTest(unittest.TestCase):
         path = self.workspace.analysis_responses_dir / "review.json"
         path.write_text(json.dumps(response, ensure_ascii=False), encoding="utf-8")
         proposal = self.service.import_proposal(path)
-        reviewed = self.service.review_candidate(proposal.analysis_proposal_id, "finding-1", "ADOPT")
+        reviewed = self.service.review_candidate(
+            proposal.analysis_proposal_id, "finding-1", "ADOPT"
+        )
         self.assertIn("finding_id", reviewed["created"])
 
         connection = self.workspace.database.connect()
@@ -193,7 +217,9 @@ class AnalysisServiceTest(unittest.TestCase):
 
     def test_import_rejects_stale_review_snapshot(self) -> None:
         packet = json.loads(
-            self.service.export_packet("REVIEW", self.document.planning_document_id).read_text(encoding="utf-8")
+            self.service.export_packet(
+                "REVIEW", self.document.planning_document_id
+            ).read_text(encoding="utf-8")
         )
         response = packet["expected_output"]
         response["producer"] = {"type": "AI", "ref": "test-agent"}
@@ -205,7 +231,12 @@ class AnalysisServiceTest(unittest.TestCase):
                 "decision_owner": "DEVELOPER",
                 "blocking": False,
                 "summary": "테스트",
-                "evidence_refs": [{"type": "SOURCE", "payload": {"snapshot": self.changed.snapshot_id}}],
+                "evidence_refs": [
+                    {
+                        "type": "SOURCE",
+                        "payload": {"snapshot": self.changed.snapshot_id},
+                    }
+                ],
             }
         ]
         self.fake.children[self.root_id] = [paragraph(notion_id(1001), "주 30시간")]

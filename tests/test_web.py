@@ -6,12 +6,12 @@ import time
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, menu_page, notion_id
+
 from spec_trace.errors import ValidationError
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.web import WebApplication
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, menu_page, notion_id
 
 
 class WebApplicationTest(unittest.TestCase):

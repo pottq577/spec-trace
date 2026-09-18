@@ -59,9 +59,15 @@ class SettingsService:
             if not isinstance(source_payload, dict):
                 raise ValidationError("notion_source must be a JSON object")
             source = NotionSourceSettings(
-                database_id=normalize_notion_id(str(source_payload.get("database_id") or "")),
-                data_source_id=normalize_notion_id(str(source_payload.get("data_source_id") or "")),
-                parent_property=self._parent_property(source_payload.get("parent_property")),
+                database_id=normalize_notion_id(
+                    str(source_payload.get("database_id") or "")
+                ),
+                data_source_id=normalize_notion_id(
+                    str(source_payload.get("data_source_id") or "")
+                ),
+                parent_property=self._parent_property(
+                    source_payload.get("parent_property")
+                ),
             )
 
         export_root = payload.get("export_root")
@@ -129,12 +135,15 @@ class SettingsService:
 
     def save(self, settings: WorkspaceSettings) -> None:
         self.workspace.state_dir.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            settings.to_dict(),
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        ) + "\n"
+        payload = (
+            json.dumps(
+                settings.to_dict(),
+                ensure_ascii=False,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n"
+        )
         fd, temporary = tempfile.mkstemp(
             prefix=".config.",
             suffix=".json",

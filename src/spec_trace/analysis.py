@@ -117,7 +117,9 @@ class AnalysisService:
                     proposal_type,
                     subject_ref,
                     json.dumps(payload["input_snapshot_refs"], separators=(",", ":")),
-                    json.dumps(proposal_code, separators=(",", ":")) if proposal_code else None,
+                    json.dumps(proposal_code, separators=(",", ":"))
+                    if proposal_code
+                    else None,
                     CONTRACT_VERSION,
                     payload.get("producer", {}).get("type", "AI"),
                     payload.get("producer", {}).get("ref"),
@@ -192,7 +194,9 @@ class AnalysisService:
     ) -> dict[str, Any]:
         action = action.upper().replace("-", "_")
         if action not in {"ADOPT", "EDIT_AND_ADOPT", "REJECT"}:
-            raise ValidationError("supported review actions are ADOPT, EDIT_AND_ADOPT, REJECT")
+            raise ValidationError(
+                "supported review actions are ADOPT, EDIT_AND_ADOPT, REJECT"
+            )
         with self.database.transaction() as connection:
             proposal = connection.execute(
                 "SELECT * FROM analysis_proposals WHERE analysis_proposal_id = ?",
@@ -227,7 +231,9 @@ class AnalysisService:
                     proposal_id,
                     candidate_key,
                     action,
-                    canonical_json_bytes(effective).decode("utf-8") if effective else None,
+                    canonical_json_bytes(effective).decode("utf-8")
+                    if effective
+                    else None,
                     reviewer,
                     reason,
                     utc_now(),
@@ -261,7 +267,9 @@ class AnalysisService:
                     )
             return {"review_action_id": action_id, "action": action, "created": created}
 
-    def _adopt(self, connection, proposal, payload: dict[str, Any], action_id: str) -> dict[str, Any]:
+    def _adopt(
+        self, connection, proposal, payload: dict[str, Any], action_id: str
+    ) -> dict[str, Any]:
         analysis_type = proposal["analysis_type"]
         if analysis_type == "SOURCE_DIFF":
             return self._adopt_source_diff(connection, proposal, payload, action_id)
@@ -269,21 +277,32 @@ class AnalysisService:
             return self._adopt_impact(connection, proposal, payload, action_id)
         return self._adopt_review(connection, proposal, payload, action_id)
 
-    def _adopt_source_diff(self, connection, proposal, payload, action_id) -> dict[str, Any]:
+    def _adopt_source_diff(
+        self, connection, proposal, payload, action_id
+    ) -> dict[str, Any]:
         classification = payload.get("classification")
         if classification not in CHANGE_CLASSIFICATIONS:
-            raise ValidationError(f"invalid ChangeItem classification: {classification}")
+            raise ValidationError(
+                f"invalid ChangeItem classification: {classification}"
+            )
         summary = str(payload.get("summary") or "").strip()
         physical_refs = payload.get("physical_change_refs") or []
         evidence = payload.get("source_evidence") or []
         if not summary or not physical_refs or not evidence:
-            raise ValidationError("Source Diff adoption requires summary, physical_change_refs, and source_evidence")
+            raise ValidationError(
+                "Source Diff adoption requires summary, physical_change_refs, and source_evidence"
+            )
         for ref in physical_refs:
-            if connection.execute(
-                "SELECT 1 FROM physical_changes WHERE physical_change_id = ? AND change_set_id = ?",
-                (ref, proposal["subject_ref"]),
-            ).fetchone() is None:
-                raise ValidationError(f"physical change does not belong to ChangeSet: {ref}")
+            if (
+                connection.execute(
+                    "SELECT 1 FROM physical_changes WHERE physical_change_id = ? AND change_set_id = ?",
+                    (ref, proposal["subject_ref"]),
+                ).fetchone()
+                is None
+            ):
+                raise ValidationError(
+                    f"physical change does not belong to ChangeSet: {ref}"
+                )
         change_item_id = new_id()
         connection.execute(
             """
@@ -308,10 +327,13 @@ class AnalysisService:
             snapshot_id = item.get("source_page_snapshot_id")
             if side not in {"BASELINE", "TARGET"} or not snapshot_id:
                 raise ValidationError("invalid Source Diff evidence")
-            if connection.execute(
-                "SELECT 1 FROM source_page_snapshots WHERE source_page_snapshot_id = ?",
-                (snapshot_id,),
-            ).fetchone() is None:
+            if (
+                connection.execute(
+                    "SELECT 1 FROM source_page_snapshots WHERE source_page_snapshot_id = ?",
+                    (snapshot_id,),
+                ).fetchone()
+                is None
+            ):
                 raise ValidationError(f"source snapshot not found: {snapshot_id}")
             block_path = item.get("block_path") or []
             quote_hash = str(item.get("quote_hash") or "")
@@ -341,10 +363,23 @@ class AnalysisService:
         change_item_id = payload.get("change_item_id")
         reference_change_ref = payload.get("reference_change_ref")
         if not change_item_id and not reference_change_ref:
-            raise ValidationError("Impact adoption requires change_item_id or reference_change_ref")
+            raise ValidationError(
+                "Impact adoption requires change_item_id or reference_change_ref"
+            )
         target_type = payload.get("target_type")
         target_ref = str(payload.get("target_ref") or "").strip()
-        if target_type not in {"FINDING", "DECISION", "FINAL_SPEC_REVISION", "IMPLEMENTATION", "RELATED_DOCUMENT", "CODE"} or not target_ref:
+        if (
+            target_type
+            not in {
+                "FINDING",
+                "DECISION",
+                "FINAL_SPEC_REVISION",
+                "IMPLEMENTATION",
+                "RELATED_DOCUMENT",
+                "CODE",
+            }
+            or not target_ref
+        ):
             raise ValidationError("invalid impact target")
         impact_link_id = new_id()
         connection.execute(
@@ -385,7 +420,11 @@ class AnalysisService:
         finding_type = payload.get("finding_type")
         owner = payload.get("decision_owner")
         summary = str(payload.get("summary") or "").strip()
-        if finding_type not in FINDING_TYPES or owner not in {"DEVELOPER", "PLANNER"} or not summary:
+        if (
+            finding_type not in FINDING_TYPES
+            or owner not in {"DEVELOPER", "PLANNER"}
+            or not summary
+        ):
             raise ValidationError("invalid review Finding candidate")
         review_cycle_id = self._ensure_review_cycle(connection, proposal["subject_ref"])
         evidence_refs = payload.get("evidence_refs") or []
@@ -425,15 +464,17 @@ class AnalysisService:
         )
         return {"finding_id": finding_id, "review_cycle_id": review_cycle_id}
 
-
     @staticmethod
-    def _apply_impact_transition(connection, target_type: str, target_ref: str, assessment: str) -> None:
+    def _apply_impact_transition(
+        connection, target_type: str, target_ref: str, assessment: str
+    ) -> None:
         if assessment == "UNAFFECTED":
             return
         finding_id = None
         if target_type == "FINDING":
             finding = connection.execute(
-                "SELECT finding_id, review_cycle_id FROM findings WHERE finding_id = ?", (target_ref,)
+                "SELECT finding_id, review_cycle_id FROM findings WHERE finding_id = ?",
+                (target_ref,),
             ).fetchone()
             if finding:
                 finding_id = finding["finding_id"]
@@ -445,11 +486,13 @@ class AnalysisService:
                 finding_id = decision["finding_id"]
                 if assessment == "INVALIDATED":
                     connection.execute(
-                        "UPDATE decisions SET status = 'INVALIDATED' WHERE decision_id = ?", (target_ref,)
+                        "UPDATE decisions SET status = 'INVALIDATED' WHERE decision_id = ?",
+                        (target_ref,),
                     )
         if finding_id:
             row = connection.execute(
-                "SELECT review_cycle_id FROM findings WHERE finding_id = ?", (finding_id,)
+                "SELECT review_cycle_id FROM findings WHERE finding_id = ?",
+                (finding_id,),
             ).fetchone()
             connection.execute(
                 "UPDATE findings SET status = 'REOPENED' WHERE finding_id = ? AND status != 'SUPERSEDED'",
@@ -499,7 +542,9 @@ class AnalysisService:
                 planning_document_id,
                 target,
                 baseline,
-                json.dumps(code_baseline, separators=(",", ":")) if code_baseline else None,
+                json.dumps(code_baseline, separators=(",", ":"))
+                if code_baseline
+                else None,
                 "CHANGE" if baseline else "INITIAL",
                 utc_now(),
             ),
@@ -507,12 +552,22 @@ class AnalysisService:
         return review_cycle_id
 
     def _validate_proposal(self, payload: dict[str, Any]) -> None:
-        required = {"contract_version", "analysis_type", "subject_ref", "input_snapshot_refs", "candidates"}
+        required = {
+            "contract_version",
+            "analysis_type",
+            "subject_ref",
+            "input_snapshot_refs",
+            "candidates",
+        }
         missing = required - payload.keys()
         if missing:
-            raise ValidationError(f"proposal missing fields: {', '.join(sorted(missing))}")
+            raise ValidationError(
+                f"proposal missing fields: {', '.join(sorted(missing))}"
+            )
         if payload["contract_version"] != CONTRACT_VERSION:
-            raise ValidationError(f"unsupported contract version: {payload['contract_version']}")
+            raise ValidationError(
+                f"unsupported contract version: {payload['contract_version']}"
+            )
         if payload["analysis_type"] not in ANALYSIS_TYPES:
             raise ValidationError(f"invalid analysis type: {payload['analysis_type']}")
         if not isinstance(payload["candidates"], list) or not payload["candidates"]:
@@ -521,11 +576,15 @@ class AnalysisService:
         for candidate in payload["candidates"]:
             key = str(candidate.get("candidate_key") or "")
             if not key or key in keys or not candidate.get("candidate_type"):
-                raise ValidationError("candidate keys must be unique and candidate_type is required")
+                raise ValidationError(
+                    "candidate keys must be unique and candidate_type is required"
+                )
             keys.add(key)
 
     def _assert_fresh(self, connection, proposal) -> None:
-        expected = self._expected_snapshot_refs(proposal["analysis_type"], proposal["subject_ref"], connection=connection)
+        expected = self._expected_snapshot_refs(
+            proposal["analysis_type"], proposal["subject_ref"], connection=connection
+        )
         actual = json.loads(proposal["input_snapshot_refs_json"])
         if expected != actual:
             connection.execute(
@@ -559,13 +618,28 @@ class AnalysisService:
                 "contract_version": CONTRACT_VERSION,
                 "analysis_type": "SOURCE_DIFF",
                 "subject_ref": change_set_id,
-                "input_snapshot_refs": [change_set["baseline_snapshot_id"], change_set["target_snapshot_id"]],
+                "input_snapshot_refs": [
+                    change_set["baseline_snapshot_id"],
+                    change_set["target_snapshot_id"],
+                ],
                 "code_baseline": [],
                 "physical_changes": [dict(row) for row in physical],
                 "source_pages": self._source_packet_pages(
-                    connection, [change_set["baseline_snapshot_id"], change_set["target_snapshot_id"]]
+                    connection,
+                    [
+                        change_set["baseline_snapshot_id"],
+                        change_set["target_snapshot_id"],
+                    ],
                 ),
-                "expected_output": self._expected_output("SOURCE_DIFF", change_set_id, [change_set["baseline_snapshot_id"], change_set["target_snapshot_id"]], []),
+                "expected_output": self._expected_output(
+                    "SOURCE_DIFF",
+                    change_set_id,
+                    [
+                        change_set["baseline_snapshot_id"],
+                        change_set["target_snapshot_id"],
+                    ],
+                    [],
+                ),
             }
         finally:
             connection.close()
@@ -590,8 +664,12 @@ class AnalysisService:
                 "input_snapshot_refs": [change_set["target_snapshot_id"]],
                 "code_baseline": code,
                 "change_items": [dict(row) for row in items],
-                "current_development_basis": self._development_basis(connection, change_set["planning_document_id"]),
-                "expected_output": self._expected_output("IMPACT", change_set_id, [change_set["target_snapshot_id"]], code),
+                "current_development_basis": self._development_basis(
+                    connection, change_set["planning_document_id"]
+                ),
+                "expected_output": self._expected_output(
+                    "IMPACT", change_set_id, [change_set["target_snapshot_id"]], code
+                ),
             }
         finally:
             connection.close()
@@ -604,7 +682,9 @@ class AnalysisService:
                 (planning_document_id,),
             ).fetchone()
             if document is None or document["current_snapshot_id"] is None:
-                raise ResourceNotFound(f"PlanningDocument with Snapshot not found: {planning_document_id}")
+                raise ResourceNotFound(
+                    f"PlanningDocument with Snapshot not found: {planning_document_id}"
+                )
             snapshot = document["current_snapshot_id"]
             code = self._code_baseline()
             return {
@@ -614,13 +694,23 @@ class AnalysisService:
                 "input_snapshot_refs": [snapshot],
                 "code_baseline": code,
                 "source_pages": self._source_packet_pages(connection, [snapshot]),
-                "current_development_basis": self._development_basis(connection, planning_document_id),
-                "expected_output": self._expected_output("REVIEW", planning_document_id, [snapshot], code),
+                "current_development_basis": self._development_basis(
+                    connection, planning_document_id
+                ),
+                "expected_output": self._expected_output(
+                    "REVIEW", planning_document_id, [snapshot], code
+                ),
             }
         finally:
             connection.close()
 
-    def _expected_output(self, analysis_type: str, subject_ref: str, snapshots: list[str], code: list[dict[str, str]]) -> dict[str, Any]:
+    def _expected_output(
+        self,
+        analysis_type: str,
+        subject_ref: str,
+        snapshots: list[str],
+        code: list[dict[str, str]],
+    ) -> dict[str, Any]:
         return {
             "contract_version": CONTRACT_VERSION,
             "analysis_type": analysis_type,
@@ -631,7 +721,9 @@ class AnalysisService:
             "candidates": [],
         }
 
-    def _source_packet_pages(self, connection, snapshot_ids: list[str]) -> list[dict[str, Any]]:
+    def _source_packet_pages(
+        self, connection, snapshot_ids: list[str]
+    ) -> list[dict[str, Any]]:
         result: list[dict[str, Any]] = []
         for snapshot_id in snapshot_ids:
             rows = connection.execute(
@@ -643,10 +735,14 @@ class AnalysisService:
                 """,
                 (snapshot_id,),
             ).fetchall()
-            result.extend({"planning_snapshot_id": snapshot_id, **dict(row)} for row in rows)
+            result.extend(
+                {"planning_snapshot_id": snapshot_id, **dict(row)} for row in rows
+            )
         return result
 
-    def _development_basis(self, connection, planning_document_id: str) -> dict[str, Any]:
+    def _development_basis(
+        self, connection, planning_document_id: str
+    ) -> dict[str, Any]:
         final_spec = connection.execute(
             """
             SELECT fs.current_revision_id FROM final_specs fs WHERE fs.planning_document_id = ?
@@ -663,11 +759,15 @@ class AnalysisService:
             (planning_document_id,),
         ).fetchall()
         return {
-            "current_final_spec_revision_id": final_spec["current_revision_id"] if final_spec else None,
+            "current_final_spec_revision_id": final_spec["current_revision_id"]
+            if final_spec
+            else None,
             "active_decisions": [dict(row) for row in decisions],
         }
 
-    def _expected_snapshot_refs(self, analysis_type: str, subject_ref: str, connection=None) -> list[str]:
+    def _expected_snapshot_refs(
+        self, analysis_type: str, subject_ref: str, connection=None
+    ) -> list[str]:
         owns = connection is None
         if owns:
             connection = self.database.connect()
@@ -693,7 +793,9 @@ class AnalysisService:
                 (subject_ref,),
             ).fetchone()
             if row is None or row["current_snapshot_id"] is None:
-                raise ResourceNotFound(f"PlanningDocument with Snapshot not found: {subject_ref}")
+                raise ResourceNotFound(
+                    f"PlanningDocument with Snapshot not found: {subject_ref}"
+                )
             return [row["current_snapshot_id"]]
         finally:
             if owns:
@@ -704,12 +806,17 @@ class AnalysisService:
         result: list[dict[str, str]] = []
         for repository in service.list():
             commit_sha = service.resolve_head(repository.repository_id)
-            result.append({"repository_id": repository.repository_id, "commit_sha": commit_sha})
+            result.append(
+                {"repository_id": repository.repository_id, "commit_sha": commit_sha}
+            )
         result.sort(key=lambda item: item["repository_id"])
         return result
 
     @staticmethod
     def _proposal_from_row(row) -> ProposalRecord:
         return ProposalRecord(
-            row["analysis_proposal_id"], row["analysis_type"], row["subject_ref"], row["status"]
+            row["analysis_proposal_id"],
+            row["analysis_type"],
+            row["subject_ref"],
+            row["status"],
         )

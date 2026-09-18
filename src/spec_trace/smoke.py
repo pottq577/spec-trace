@@ -102,4 +102,6 @@ class LiveSmokeService:
             }
             if parent_id in ids:
                 return
-        raise ValidationError("live smoke page does not belong to the configured database")
+        raise ValidationError(
+            "live smoke page does not belong to the configured database"
+        )

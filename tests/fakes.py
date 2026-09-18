@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Callable
 from copy import deepcopy
-from typing import Any, Callable
+from typing import Any
 
 from spec_trace.errors import ExternalServiceError, ResourceNotFound
 from spec_trace.notion import normalize_notion_id
@@ -11,19 +12,28 @@ def notion_id(seed: int) -> str:
     return f"{seed:032x}"
 
 
-def page(page_id: str, title: str, edited: str = "2026-09-18T00:00:00.000Z", data_source_id: str | None = None) -> dict[str, Any]:
+def page(
+    page_id: str,
+    title: str,
+    edited: str = "2026-09-18T00:00:00.000Z",
+    data_source_id: str | None = None,
+) -> dict[str, Any]:
     return {
         "object": "page",
         "id": page_id,
         "last_edited_time": edited,
         "archived": False,
         "in_trash": False,
-        "parent": {"type": "data_source_id", "data_source_id": data_source_id} if data_source_id else {"type": "page_id", "page_id": notion_id(9999)},
+        "parent": {"type": "data_source_id", "data_source_id": data_source_id}
+        if data_source_id
+        else {"type": "page_id", "page_id": notion_id(9999)},
         "properties": {
             "Name": {
                 "id": "title",
                 "type": "title",
-                "title": [{"type": "text", "plain_text": title, "text": {"content": title}}],
+                "title": [
+                    {"type": "text", "plain_text": title, "text": {"content": title}}
+                ],
             }
         },
     }
@@ -51,7 +61,9 @@ def paragraph(block_id: str, text: str) -> dict[str, Any]:
         "type": "paragraph",
         "has_children": False,
         "paragraph": {
-            "rich_text": [{"type": "text", "plain_text": text, "text": {"content": text}}],
+            "rich_text": [
+                {"type": "text", "plain_text": text, "text": {"content": text}}
+            ],
             "color": "default",
         },
     }
@@ -68,12 +80,18 @@ def child_page(block_id: str, title: str) -> dict[str, Any]:
 
 
 class FakeNotion:
-    def __init__(self, pages: dict[str, dict[str, Any]], children: dict[str, list[dict[str, Any]]]):
+    def __init__(
+        self,
+        pages: dict[str, dict[str, Any]],
+        children: dict[str, list[dict[str, Any]]],
+    ):
         self.pages = {normalize_notion_id(k): deepcopy(v) for k, v in pages.items()}
-        self.children = {normalize_notion_id(k): deepcopy(v) for k, v in children.items()}
+        self.children = {
+            normalize_notion_id(k): deepcopy(v) for k, v in children.items()
+        }
         self.root_page_id: str | None = None
         self.root_retrieve_count = 0
-        self.on_second_capture: Callable[["FakeNotion"], None] | None = None
+        self.on_second_capture: Callable[[FakeNotion], None] | None = None
         self.databases: dict[str, dict[str, Any]] = {}
         self._next_generated_id = 100000
         self.fail_next_write = False
@@ -103,9 +121,7 @@ class FakeNotion:
             parent = item.get("parent") or {}
             if parent.get("type") != "data_source_id":
                 continue
-            parent_id = normalize_notion_id(
-                str(parent.get("data_source_id") or "")
-            )
+            parent_id = normalize_notion_id(str(parent.get("data_source_id") or ""))
             if parent_id == data_source_id:
                 results.append(deepcopy(item))
         return sorted(results, key=lambda value: str(value.get("id") or ""))
@@ -144,7 +160,9 @@ class FakeNotion:
                     return deepcopy(removed)
         raise ResourceNotFound(block_id)
 
-    def append_block_children(self, block_id: str, children: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def append_block_children(
+        self, block_id: str, children: list[dict[str, Any]]
+    ) -> list[dict[str, Any]]:
         self._maybe_fail_write()
         block_id = normalize_notion_id(block_id)
         created: list[dict[str, Any]] = []
@@ -162,7 +180,9 @@ class FakeNotion:
             created.append(item)
         return deepcopy(created)
 
-    def update_block(self, block_id: str, block_type: str, value: dict[str, Any]) -> dict[str, Any]:
+    def update_block(
+        self, block_id: str, block_type: str, value: dict[str, Any]
+    ) -> dict[str, Any]:
         self._maybe_fail_write()
         block_id = normalize_notion_id(block_id)
         for blocks in self.children.values():

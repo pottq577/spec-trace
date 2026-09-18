@@ -89,8 +89,12 @@ class ProjectionService:
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        new_id(), row["open_question_id"], answer, answer_hash,
-                        utc_now(), previous["planner_answer_id"] if previous else None,
+                        new_id(),
+                        row["open_question_id"],
+                        answer,
+                        answer_hash,
+                        utc_now(),
+                        previous["planner_answer_id"] if previous else None,
                     ),
                 )
                 connection.execute(
@@ -118,7 +122,9 @@ class ProjectionService:
         finally:
             connection.close()
         if document is None:
-            raise ResourceNotFound(f"PlanningDocument not found: {planning_document_id}")
+            raise ResourceNotFound(
+                f"PlanningDocument not found: {planning_document_id}"
+            )
         if mapping:
             try:
                 page = self.notion.retrieve_page(mapping["review_page_id"])
@@ -126,7 +132,9 @@ class ProjectionService:
                     return normalize_notion_id(mapping["review_page_id"])
             except ResourceNotFound:
                 pass
-        created = self.notion.create_child_page(document["root_notion_page_id"], "개발 검토")
+        created = self.notion.create_child_page(
+            document["root_notion_page_id"], "개발 검토"
+        )
         review_page_id = normalize_notion_id(str(created["id"]))
         with self.database.transaction() as connection:
             connection.execute(
@@ -154,7 +162,9 @@ class ProjectionService:
             connection.close()
         value = _rich_text_value(f"현재 상태: {text}")
         if mapping is None:
-            created = self.notion.append_block_children(review_page_id, [_paragraph_block(f"현재 상태: {text}")])
+            created = self.notion.append_block_children(
+                review_page_id, [_paragraph_block(f"현재 상태: {text}")]
+            )
             if not created:
                 raise ExternalServiceError("Notion did not return the status block")
             block_id = normalize_notion_id(str(created[0]["id"]))
@@ -190,7 +200,9 @@ class ProjectionService:
         count = 0
         for row in rows:
             text = f"개발 결정: {row['adopted_option']}\n이유: {row['rationale']}"
-            created = self.notion.append_block_children(review_page_id, [_paragraph_block(text)])
+            created = self.notion.append_block_children(
+                review_page_id, [_paragraph_block(text)]
+            )
             block_id = normalize_notion_id(str(created[0]["id"]))
             digest = sha256_bytes(text.encode("utf-8"))
             with self.database.transaction() as connection:
@@ -224,14 +236,20 @@ class ProjectionService:
             tradeoffs = json.loads(row["tradeoffs_json"])
             details = [
                 _heading_block(row["question"]),
-                _paragraph_block("선택지: " + " / ".join(str(value) for value in options)),
-                _paragraph_block("트레이드오프: " + " / ".join(str(value) for value in tradeoffs)),
+                _paragraph_block(
+                    "선택지: " + " / ".join(str(value) for value in options)
+                ),
+                _paragraph_block(
+                    "트레이드오프: " + " / ".join(str(value) for value in tradeoffs)
+                ),
                 _paragraph_block("개발 권장: " + row["developer_recommendation"]),
                 _toggle_block("답변"),
             ]
             created = self.notion.append_block_children(review_page_id, details)
             if len(created) != len(details):
-                raise ExternalServiceError("Notion returned an incomplete question projection")
+                raise ExternalServiceError(
+                    "Notion returned an incomplete question projection"
+                )
             section_id = normalize_notion_id(str(created[0]["id"]))
             slot_id = normalize_notion_id(str(created[-1]["id"]))
             with self.database.transaction() as connection:
@@ -269,18 +287,23 @@ class ProjectionService:
                     (row["blocker_id"],),
                 ).fetchall()
                 mapping = connection.execute(
-                    "SELECT * FROM notion_blocker_blocks WHERE blocker_id = ?", (row["blocker_id"],)
+                    "SELECT * FROM notion_blocker_blocks WHERE blocker_id = ?",
+                    (row["blocker_id"],),
                 ).fetchone()
             finally:
                 connection.close()
-            scope_text = ", ".join(scope["description"] or scope["target_ref"] for scope in scopes)
+            scope_text = ", ".join(
+                scope["description"] or scope["target_ref"] for scope in scopes
+            )
             available = ", ".join(json.loads(row["available_work_json"] or "[]"))
             text = (
                 f"Blocker: {row['reason']}\n막힌 범위: {scope_text}\n"
                 f"현재 가능한 작업: {available or 'BlockedScope 외 작업'}\n재개 조건: {row['resume_condition']}"
             )
             if mapping is None:
-                created = self.notion.append_block_children(review_page_id, [_paragraph_block(text)])
+                created = self.notion.append_block_children(
+                    review_page_id, [_paragraph_block(text)]
+                )
                 block_id = normalize_notion_id(str(created[0]["id"]))
                 with self.database.transaction() as connection:
                     connection.execute(
@@ -288,7 +311,11 @@ class ProjectionService:
                         (row["blocker_id"], block_id, utc_now()),
                     )
             else:
-                self.notion.update_block(mapping["blocker_section_block_id"], "paragraph", _rich_text_value(text))
+                self.notion.update_block(
+                    mapping["blocker_section_block_id"],
+                    "paragraph",
+                    _rich_text_value(text),
+                )
                 with self.database.transaction() as connection:
                     connection.execute(
                         "UPDATE notion_blocker_blocks SET updated_at = ? WHERE blocker_id = ?",
@@ -331,7 +358,9 @@ class ProjectionService:
     def _read_answer(self, block_id: str) -> str:
         lines: list[str] = []
         self._read_answer_children(block_id, lines)
-        normalized = [" ".join(line.split()) for line in lines if " ".join(line.split())]
+        normalized = [
+            " ".join(line.split()) for line in lines if " ".join(line.split())
+        ]
         return "\n".join(normalized).strip()
 
     def _read_answer_children(self, block_id: str, lines: list[str]) -> None:
@@ -340,7 +369,14 @@ class ProjectionService:
             payload = block.get(block_type) if block_type else None
             if isinstance(payload, dict):
                 rich_text = payload.get("rich_text") or []
-                text = "".join(str(item.get("plain_text") or (item.get("text") or {}).get("content") or "") for item in rich_text)
+                text = "".join(
+                    str(
+                        item.get("plain_text")
+                        or (item.get("text") or {}).get("content")
+                        or ""
+                    )
+                    for item in rich_text
+                )
                 if text:
                     lines.append(text)
             if block.get("has_children") and block.get("id"):
@@ -355,7 +391,9 @@ class ProjectionService:
             )
         return run_id
 
-    def _finish_run(self, run_id: str, status: str, failure_code: str | None = None) -> None:
+    def _finish_run(
+        self, run_id: str, status: str, failure_code: str | None = None
+    ) -> None:
         with self.database.transaction() as connection:
             connection.execute(
                 "UPDATE projection_runs SET status = ?, failure_code = ?, completed_at = ? WHERE projection_run_id = ?",

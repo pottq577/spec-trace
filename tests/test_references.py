@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from spec_trace.references import extract_block_references
-
 from fakes import notion_id
+
+from spec_trace.references import extract_block_references
 
 
 class ReferenceExtractionTest(unittest.TestCase):
@@ -15,8 +15,14 @@ class ReferenceExtractionTest(unittest.TestCase):
                 "type": "paragraph",
                 "paragraph": {
                     "rich_text": [
-                        {"type": "mention", "mention": {"type": "page", "page": {"id": target}}},
-                        {"type": "text", "href": f"https://www.notion.so/Policy-{target}"},
+                        {
+                            "type": "mention",
+                            "mention": {"type": "page", "page": {"id": target}},
+                        },
+                        {
+                            "type": "text",
+                            "href": f"https://www.notion.so/Policy-{target}",
+                        },
                     ]
                 },
             }

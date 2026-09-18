@@ -253,9 +253,7 @@ class PlanningDocumentService:
             )
 
     @staticmethod
-    def _validate_parent_data_source(
-        page: dict[str, Any], data_source_id: str
-    ) -> None:
+    def _validate_parent_data_source(page: dict[str, Any], data_source_id: str) -> None:
         parent = page.get("parent") or {}
         if parent.get("type") != "data_source_id":
             raise ValidationError("Notion source sync result is not a data source row")
@@ -273,9 +271,7 @@ class PlanningDocumentService:
                 f"Notion page is missing relation property: {property_name}"
             )
         if prop.get("type") != "relation":
-            raise ValidationError(
-                f"Notion property is not a relation: {property_name}"
-            )
+            raise ValidationError(f"Notion property is not a relation: {property_name}")
         relations = prop.get("relation") or []
         if len(relations) > 1:
             raise ValidationError(

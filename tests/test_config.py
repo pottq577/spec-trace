@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import notion_id
+
 from spec_trace.config import SettingsService
 from spec_trace.workspace import Workspace
-
-from fakes import notion_id
 
 
 class SettingsServiceTest(unittest.TestCase):
@@ -24,7 +24,9 @@ class SettingsServiceTest(unittest.TestCase):
     def test_suggests_peoplo_prd_notion_sibling(self) -> None:
         service = SettingsService(self.workspace)
 
-        self.assertEqual(service.suggested_export_root(), str(self.export_root.resolve()))
+        self.assertEqual(
+            service.suggested_export_root(), str(self.export_root.resolve())
+        )
 
     def test_persists_notion_source_and_export_root(self) -> None:
         service = SettingsService(self.workspace)

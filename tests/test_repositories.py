@@ -14,11 +14,18 @@ class RepositoryServiceTest(unittest.TestCase):
             repo = root / "product"
             repo.mkdir()
             subprocess.run(["git", "init", "-q", str(repo)], check=True)
-            subprocess.run(["git", "-C", str(repo), "config", "user.email", "test@example.com"], check=True)
-            subprocess.run(["git", "-C", str(repo), "config", "user.name", "Test"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(repo), "config", "user.name", "Test"], check=True
+            )
             (repo / "README.md").write_text("hello\n")
             subprocess.run(["git", "-C", str(repo), "add", "README.md"], check=True)
-            subprocess.run(["git", "-C", str(repo), "commit", "-qm", "init"], check=True)
+            subprocess.run(
+                ["git", "-C", str(repo), "commit", "-qm", "init"], check=True
+            )
 
             workspace = Workspace(root / "workspace")
             workspace.initialize()

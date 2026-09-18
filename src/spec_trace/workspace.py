@@ -75,7 +75,7 @@ class WorkspaceLock:
         self.workspace = workspace
         self._handle: IO[str] | None = None
 
-    def __enter__(self) -> "WorkspaceLock":
+    def __enter__(self) -> WorkspaceLock:
         self.workspace.state_dir.mkdir(parents=True, exist_ok=True)
         self._handle = self.workspace.lock_path.open("a+", encoding="utf-8")
         fcntl.flock(self._handle.fileno(), fcntl.LOCK_EX)

@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, child_page, menu_page, notion_id, page, paragraph
+
 from spec_trace.config import SettingsService
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.runtime import RuntimeService
 from spec_trace.source_export import SourceExportService
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, child_page, menu_page, notion_id, page, paragraph
 
 
 class SourceExportServiceTest(unittest.TestCase):

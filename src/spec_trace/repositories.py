@@ -94,13 +94,19 @@ class RepositoryService:
 
     def verify_commit(self, repository_id: str, commit_sha: str) -> str:
         repository = self.get(repository_id)
-        resolved = self._git(Path(repository.local_path), "rev-parse", f"{commit_sha}^{{commit}}")
+        resolved = self._git(
+            Path(repository.local_path), "rev-parse", f"{commit_sha}^{{commit}}"
+        )
         return resolved
 
-    def path_exists_at_commit(self, repository_id: str, commit_sha: str, path: str) -> bool:
+    def path_exists_at_commit(
+        self, repository_id: str, commit_sha: str, path: str
+    ) -> bool:
         repository = self.get(repository_id)
         try:
-            self._git(Path(repository.local_path), "cat-file", "-e", f"{commit_sha}:{path}")
+            self._git(
+                Path(repository.local_path), "cat-file", "-e", f"{commit_sha}:{path}"
+            )
             return True
         except ValidationError:
             return False

@@ -22,14 +22,21 @@ class ReviewService:
         rationale = str(payload.get("rationale") or "").strip()
         evidence = payload.get("evidence_refs") or []
         if not adopted_option or not rationale or not evidence:
-            raise ValidationError("Decision requires adopted_option, rationale, and evidence_refs")
+            raise ValidationError(
+                "Decision requires adopted_option, rationale, and evidence_refs"
+            )
         with self.database.transaction() as connection:
             finding = self._finding(connection, finding_id)
             if finding["decision_owner"] != "DEVELOPER":
                 raise StateConflict("Finding requires planner decision")
             decision_id = self._insert_decision(
-                connection, finding, "DEVELOPER", adopted_option, rationale,
-                evidence, payload.get("supersedes_decision_id")
+                connection,
+                finding,
+                "DEVELOPER",
+                adopted_option,
+                rationale,
+                evidence,
+                payload.get("supersedes_decision_id"),
             )
             active_blocker = connection.execute(
                 "SELECT 1 FROM blockers WHERE finding_id = ? AND status = 'ACTIVE'",
@@ -40,8 +47,14 @@ class ReviewService:
                 ("RESOLVING" if active_blocker else "RESOLVED", finding_id),
             )
             self._recalculate_cycle(connection, finding["review_cycle_id"])
-            planning_document_id = self._planning_document_for_cycle(connection, finding["review_cycle_id"])
-        self.pending.schedule("PROJECT_DOCUMENT", planning_document_id, f"projection:{planning_document_id}")
+            planning_document_id = self._planning_document_for_cycle(
+                connection, finding["review_cycle_id"]
+            )
+        self.pending.schedule(
+            "PROJECT_DOCUMENT",
+            planning_document_id,
+            f"projection:{planning_document_id}",
+        )
         return decision_id
 
     def publish_question(self, finding_id: str, payload: dict[str, Any]) -> str:
@@ -50,7 +63,9 @@ class ReviewService:
         tradeoffs = payload.get("tradeoffs") or []
         recommendation = str(payload.get("developer_recommendation") or "").strip()
         if not question or not options or not recommendation:
-            raise ValidationError("OpenQuestion requires question, options, and developer_recommendation")
+            raise ValidationError(
+                "OpenQuestion requires question, options, and developer_recommendation"
+            )
         with self.database.transaction() as connection:
             finding = self._finding(connection, finding_id)
             if finding["decision_owner"] != "PLANNER":
@@ -74,19 +89,31 @@ class ReviewService:
                 ) VALUES (?, ?, ?, ?, ?, ?, 'OPEN', ?)
                 """,
                 (
-                    question_id, finding_id, question,
+                    question_id,
+                    finding_id,
+                    question,
                     json.dumps(options, ensure_ascii=False, separators=(",", ":")),
                     json.dumps(tradeoffs, ensure_ascii=False, separators=(",", ":")),
-                    recommendation, utc_now(),
+                    recommendation,
+                    utc_now(),
                 ),
             )
-            connection.execute("UPDATE findings SET status = 'RESOLVING' WHERE finding_id = ?", (finding_id,))
+            connection.execute(
+                "UPDATE findings SET status = 'RESOLVING' WHERE finding_id = ?",
+                (finding_id,),
+            )
             connection.execute(
                 "UPDATE review_cycles SET status = 'AWAITING_PLANNER' WHERE review_cycle_id = ?",
                 (finding["review_cycle_id"],),
             )
-            planning_document_id = self._planning_document_for_cycle(connection, finding["review_cycle_id"])
-        self.pending.schedule("PROJECT_DOCUMENT", planning_document_id, f"projection:{planning_document_id}")
+            planning_document_id = self._planning_document_for_cycle(
+                connection, finding["review_cycle_id"]
+            )
+        self.pending.schedule(
+            "PROJECT_DOCUMENT",
+            planning_document_id,
+            f"projection:{planning_document_id}",
+        )
         return question_id
 
     def set_blocker(self, finding_id: str, payload: dict[str, Any]) -> str:
@@ -95,7 +122,9 @@ class ReviewService:
         scopes = payload.get("scopes") or []
         available_work = payload.get("available_work") or []
         if not reason or not resume_condition or not scopes:
-            raise ValidationError("Blocker requires reason, resume_condition, and at least one scope")
+            raise ValidationError(
+                "Blocker requires reason, resume_condition, and at least one scope"
+            )
         with self.database.transaction() as connection:
             finding = self._finding(connection, finding_id)
             existing = connection.execute(
@@ -113,13 +142,24 @@ class ReviewService:
                 ) VALUES (?, ?, ?, ?, 'ACTIVE', ?, ?)
                 """,
                 (
-                    blocker_id, finding_id, reason, resume_condition, utc_now(),
-                    json.dumps(available_work, ensure_ascii=False, separators=(",", ":")),
+                    blocker_id,
+                    finding_id,
+                    reason,
+                    resume_condition,
+                    utc_now(),
+                    json.dumps(
+                        available_work, ensure_ascii=False, separators=(",", ":")
+                    ),
                 ),
             )
             for scope in scopes:
                 scope_type = scope.get("scope_type")
-                if scope_type not in {"FEATURE", "DESIGN", "IMPLEMENTATION", "WORK_ITEM"}:
+                if scope_type not in {
+                    "FEATURE",
+                    "DESIGN",
+                    "IMPLEMENTATION",
+                    "WORK_ITEM",
+                }:
                     raise ValidationError(f"invalid BlockedScope type: {scope_type}")
                 connection.execute(
                     """
@@ -128,7 +168,9 @@ class ReviewService:
                     ) VALUES (?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        new_id(), blocker_id, scope_type,
+                        new_id(),
+                        blocker_id,
+                        scope_type,
                         str(scope.get("target_ref") or ""),
                         str(scope.get("description") or ""),
                         str(scope.get("resume_work") or ""),
@@ -139,36 +181,58 @@ class ReviewService:
                 (finding_id,),
             )
             self._recalculate_cycle(connection, finding["review_cycle_id"])
-            planning_document_id = self._planning_document_for_cycle(connection, finding["review_cycle_id"])
-        self.pending.schedule("PROJECT_DOCUMENT", planning_document_id, f"projection:{planning_document_id}")
+            planning_document_id = self._planning_document_for_cycle(
+                connection, finding["review_cycle_id"]
+            )
+        self.pending.schedule(
+            "PROJECT_DOCUMENT",
+            planning_document_id,
+            f"projection:{planning_document_id}",
+        )
         return blocker_id
 
     def resolve_blocker(self, blocker_id: str, reason: str | None = None) -> list[str]:
         with self.database.transaction() as connection:
-            blocker = connection.execute("SELECT * FROM blockers WHERE blocker_id = ?", (blocker_id,)).fetchone()
+            blocker = connection.execute(
+                "SELECT * FROM blockers WHERE blocker_id = ?", (blocker_id,)
+            ).fetchone()
             if blocker is None:
                 raise ResourceNotFound(f"Blocker not found: {blocker_id}")
             scopes = connection.execute(
                 "SELECT resume_work FROM blocked_scopes WHERE blocker_id = ? ORDER BY blocked_scope_id",
                 (blocker_id,),
             ).fetchall()
-            connection.execute("UPDATE blockers SET status = 'RESOLVED' WHERE blocker_id = ?", (blocker_id,))
+            connection.execute(
+                "UPDATE blockers SET status = 'RESOLVED' WHERE blocker_id = ?",
+                (blocker_id,),
+            )
             finding = self._finding(connection, blocker["finding_id"])
             decision = connection.execute(
                 "SELECT 1 FROM decisions WHERE finding_id = ? AND status = 'ADOPTED'",
                 (finding["finding_id"],),
             ).fetchone()
             if decision:
-                connection.execute("UPDATE findings SET status = 'RESOLVED' WHERE finding_id = ?", (finding["finding_id"],))
+                connection.execute(
+                    "UPDATE findings SET status = 'RESOLVED' WHERE finding_id = ?",
+                    (finding["finding_id"],),
+                )
             self._recalculate_cycle(connection, finding["review_cycle_id"])
-            planning_document_id = self._planning_document_for_cycle(connection, finding["review_cycle_id"])
+            planning_document_id = self._planning_document_for_cycle(
+                connection, finding["review_cycle_id"]
+            )
             resume = [row["resume_work"] for row in scopes if row["resume_work"]]
-        self.pending.schedule("PROJECT_DOCUMENT", planning_document_id, f"projection:{planning_document_id}")
+        self.pending.schedule(
+            "PROJECT_DOCUMENT",
+            planning_document_id,
+            f"projection:{planning_document_id}",
+        )
         for target in resume:
             self.pending.schedule("RESUME_WORK", target, f"resume:{target}")
         return resume
 
-    def verify_answer(self, planner_answer_id: str, payload: dict[str, Any], *, reopen: bool = False) -> str | None:
+    def verify_answer(
+        self, planner_answer_id: str, payload: dict[str, Any], *, reopen: bool = False
+    ) -> str | None:
         with self.database.transaction() as connection:
             answer = connection.execute(
                 """
@@ -186,7 +250,10 @@ class ReviewService:
                     "UPDATE open_questions SET status = 'REOPENED' WHERE open_question_id = ?",
                     (answer["open_question_id"],),
                 )
-                connection.execute("UPDATE findings SET status = 'REOPENED' WHERE finding_id = ?", (finding["finding_id"],))
+                connection.execute(
+                    "UPDATE findings SET status = 'REOPENED' WHERE finding_id = ?",
+                    (finding["finding_id"],),
+                )
                 connection.execute(
                     "UPDATE review_cycles SET status = 'AWAITING_PLANNER' WHERE review_cycle_id = ?",
                     (finding["review_cycle_id"],),
@@ -196,14 +263,21 @@ class ReviewService:
             rationale = str(payload.get("rationale") or "").strip()
             evidence = payload.get("evidence_refs") or []
             if not adopted_option or not rationale or not evidence:
-                raise ValidationError("answer verification requires adopted_option, rationale, and evidence_refs")
+                raise ValidationError(
+                    "answer verification requires adopted_option, rationale, and evidence_refs"
+                )
             connection.execute(
                 "UPDATE open_questions SET status = 'VERIFYING' WHERE open_question_id = ?",
                 (answer["open_question_id"],),
             )
             decision_id = self._insert_decision(
-                connection, finding, "PLANNER", adopted_option, rationale,
-                evidence, payload.get("supersedes_decision_id")
+                connection,
+                finding,
+                "PLANNER",
+                adopted_option,
+                rationale,
+                evidence,
+                payload.get("supersedes_decision_id"),
             )
             connection.execute(
                 "UPDATE open_questions SET status = 'RESOLVED' WHERE open_question_id = ?",
@@ -218,17 +292,34 @@ class ReviewService:
                 ("RESOLVING" if active_blocker else "RESOLVED", finding["finding_id"]),
             )
             self._recalculate_cycle(connection, finding["review_cycle_id"])
-            planning_document_id = self._planning_document_for_cycle(connection, finding["review_cycle_id"])
-        self.pending.schedule("PROJECT_DOCUMENT", planning_document_id, f"projection:{planning_document_id}")
+            planning_document_id = self._planning_document_for_cycle(
+                connection, finding["review_cycle_id"]
+            )
+        self.pending.schedule(
+            "PROJECT_DOCUMENT",
+            planning_document_id,
+            f"projection:{planning_document_id}",
+        )
         return decision_id
 
-    def _insert_decision(self, connection, finding, owner, adopted_option, rationale, evidence, supersedes) -> str:
+    def _insert_decision(
+        self,
+        connection,
+        finding,
+        owner,
+        adopted_option,
+        rationale,
+        evidence,
+        supersedes,
+    ) -> str:
         if supersedes:
             previous = connection.execute(
                 "SELECT finding_id FROM decisions WHERE decision_id = ?", (supersedes,)
             ).fetchone()
             if previous is None or previous["finding_id"] != finding["finding_id"]:
-                raise ValidationError("superseded Decision must belong to the same Finding")
+                raise ValidationError(
+                    "superseded Decision must belong to the same Finding"
+                )
         decision_id = new_id()
         connection.execute(
             """
@@ -237,12 +328,25 @@ class ReviewService:
                 supersedes_decision_id, status, created_at
             ) VALUES (?, ?, ?, ?, ?, ?, 'ADOPTED', ?)
             """,
-            (decision_id, finding["finding_id"], owner, adopted_option, rationale, supersedes, utc_now()),
+            (
+                decision_id,
+                finding["finding_id"],
+                owner,
+                adopted_option,
+                rationale,
+                supersedes,
+                utc_now(),
+            ),
         )
         if supersedes:
-            connection.execute("UPDATE decisions SET status = 'SUPERSEDED' WHERE decision_id = ?", (supersedes,))
+            connection.execute(
+                "UPDATE decisions SET status = 'SUPERSEDED' WHERE decision_id = ?",
+                (supersedes,),
+            )
         for item in evidence:
-            evidence_id = EvidenceService(self.database).ensure(item["type"], item["payload"], connection=connection)
+            evidence_id = EvidenceService(self.database).ensure(
+                item["type"], item["payload"], connection=connection
+            )
             connection.execute(
                 "INSERT INTO decision_evidence(decision_id, evidence_ref_id) VALUES (?, ?)",
                 (decision_id, evidence_id),
@@ -277,17 +381,23 @@ class ReviewService:
                 (cycle_id,),
             ).fetchone()["c"]
             status = "COMPLETED" if unresolved == 0 and blockers == 0 else "REVIEWING"
-        connection.execute("UPDATE review_cycles SET status = ? WHERE review_cycle_id = ?", (status, cycle_id))
+        connection.execute(
+            "UPDATE review_cycles SET status = ? WHERE review_cycle_id = ?",
+            (status, cycle_id),
+        )
 
     @staticmethod
     def _planning_document_for_cycle(connection, cycle_id: str) -> str:
         return connection.execute(
-            "SELECT planning_document_id FROM review_cycles WHERE review_cycle_id = ?", (cycle_id,)
+            "SELECT planning_document_id FROM review_cycles WHERE review_cycle_id = ?",
+            (cycle_id,),
         ).fetchone()["planning_document_id"]
 
     @staticmethod
     def _finding(connection, finding_id: str):
-        row = connection.execute("SELECT * FROM findings WHERE finding_id = ?", (finding_id,)).fetchone()
+        row = connection.execute(
+            "SELECT * FROM findings WHERE finding_id = ?", (finding_id,)
+        ).fetchone()
         if row is None:
             raise ResourceNotFound(f"Finding not found: {finding_id}")
         return row
@@ -327,12 +437,17 @@ class FinalSpecService:
                 (planning_document_id,),
             ).fetchone()["c"]
             if unresolved or active_blockers:
-                raise StateConflict("FinalSpec requires all Findings and active Blockers to be resolved")
+                raise StateConflict(
+                    "FinalSpec requires all Findings and active Blockers to be resolved"
+                )
             final_spec = connection.execute(
-                "SELECT * FROM final_specs WHERE planning_document_id = ?", (planning_document_id,)
+                "SELECT * FROM final_specs WHERE planning_document_id = ?",
+                (planning_document_id,),
             ).fetchone()
             final_spec_id = final_spec["final_spec_id"] if final_spec else new_id()
-            previous_revision_id = final_spec["current_revision_id"] if final_spec else None
+            previous_revision_id = (
+                final_spec["current_revision_id"] if final_spec else None
+            )
             if final_spec is None:
                 connection.execute(
                     "INSERT INTO final_specs(final_spec_id, planning_document_id, created_at) VALUES (?, ?, ?)",
@@ -346,7 +461,14 @@ class FinalSpecService:
                     content_ref, content_hash, created_at
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                (revision_id, final_spec_id, previous_revision_id, content_ref, content_hash, now),
+                (
+                    revision_id,
+                    final_spec_id,
+                    previous_revision_id,
+                    content_ref,
+                    content_hash,
+                    now,
+                ),
             )
             connection.execute(
                 "INSERT INTO final_spec_revision_snapshots(final_spec_revision_id, planning_document_snapshot_id) VALUES (?, ?)",

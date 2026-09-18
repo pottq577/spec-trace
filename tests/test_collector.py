@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, child_page, notion_id, page, paragraph
+
 from spec_trace.collector import SourceCollector
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, child_page, notion_id, page, paragraph
 
 
 class CollectorTest(unittest.TestCase):
@@ -22,7 +22,11 @@ class CollectorTest(unittest.TestCase):
         self.data_source_id = notion_id(901)
         self.fake = FakeNotion(
             pages={
-                self.root_id: page(self.root_id, "근무유형별근무기준등록", data_source_id=self.data_source_id),
+                self.root_id: page(
+                    self.root_id,
+                    "근무유형별근무기준등록",
+                    data_source_id=self.data_source_id,
+                ),
                 self.child_id: page(self.child_id, "설명보완서"),
             },
             children={
@@ -34,10 +38,13 @@ class CollectorTest(unittest.TestCase):
             },
         )
         self.fake.root_page_id = self.root_id
-        self.fake.databases[self.database_id] = {"id": self.database_id, "data_sources": [{"id": self.data_source_id, "name": "기획"}]}
-        self.document = PlanningDocumentService(self.workspace.database, self.fake).register(
-            self.database_id, self.root_id
-        )
+        self.fake.databases[self.database_id] = {
+            "id": self.database_id,
+            "data_sources": [{"id": self.data_source_id, "name": "기획"}],
+        }
+        self.document = PlanningDocumentService(
+            self.workspace.database, self.fake
+        ).register(self.database_id, self.root_id)
         self.collector = SourceCollector(
             self.workspace.database, self.workspace.content_store, self.fake
         )
@@ -55,14 +62,18 @@ class CollectorTest(unittest.TestCase):
 
         connection = self.workspace.database.connect()
         try:
-            count = connection.execute("SELECT COUNT(*) AS c FROM planning_snapshot_pages").fetchone()["c"]
+            count = connection.execute(
+                "SELECT COUNT(*) AS c FROM planning_snapshot_pages"
+            ).fetchone()["c"]
         finally:
             connection.close()
         self.assertEqual(count, 2)
 
     def test_changed_content_creates_change_set_and_physical_change(self) -> None:
         first = self.collector.collect(self.document.planning_document_id)
-        self.fake.children[self.child_id] = [paragraph(notion_id(201), "보상휴가 정책 변경")]
+        self.fake.children[self.child_id] = [
+            paragraph(notion_id(201), "보상휴가 정책 변경")
+        ]
         self.fake.pages[self.child_id]["last_edited_time"] = "2026-09-18T00:01:00.000Z"
 
         second = self.collector.collect(self.document.planning_document_id)
@@ -78,7 +89,10 @@ class CollectorTest(unittest.TestCase):
             ).fetchall()
         finally:
             connection.close()
-        self.assertEqual([(row["notion_page_id"], row["change_type"]) for row in rows], [(self.child_id, "CONTENT_CHANGED")])
+        self.assertEqual(
+            [(row["notion_page_id"], row["change_type"]) for row in rows],
+            [(self.child_id, "CONTENT_CHANGED")],
+        )
 
     def test_unstable_capture_does_not_publish_snapshot(self) -> None:
         first = self.collector.collect(self.document.planning_document_id)
@@ -108,7 +122,11 @@ class CollectorTest(unittest.TestCase):
                 INSERT INTO notion_review_pages(planning_document_id, review_page_id, updated_at)
                 VALUES (?, ?, ?)
                 """,
-                (self.document.planning_document_id, review_page_id, "2026-09-18T00:00:00Z"),
+                (
+                    self.document.planning_document_id,
+                    review_page_id,
+                    "2026-09-18T00:00:00Z",
+                ),
             )
 
         result = self.collector.collect(self.document.planning_document_id)
@@ -120,4 +138,6 @@ class CollectorTest(unittest.TestCase):
             ).fetchall()
         finally:
             connection.close()
-        self.assertEqual({row["notion_page_id"] for row in rows}, {self.root_id, self.child_id})
+        self.assertEqual(
+            {row["notion_page_id"] for row in rows}, {self.root_id, self.child_id}
+        )

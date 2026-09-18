@@ -4,13 +4,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, notion_id, page, paragraph
+
 from spec_trace.pending import PendingOperationService
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.runtime import RuntimeService, StatusService
 from spec_trace.smoke import LiveSmokeService
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, notion_id, page, paragraph
 
 
 class RuntimeServiceTest(unittest.TestCase):
@@ -44,9 +44,9 @@ class RuntimeServiceTest(unittest.TestCase):
         self.temp.cleanup()
 
     def test_collect_document_retries_source_unstable(self) -> None:
-        RuntimeService(self.workspace, self.fake, sleeper=lambda _: None).collect_document(
-            self.document.planning_document_id
-        )
+        RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        ).collect_document(self.document.planning_document_id)
 
         def mutate(fake: FakeNotion) -> None:
             fake.children[self.root_id][0] = paragraph(notion_id(5001), "주 35시간")
@@ -85,9 +85,9 @@ class RuntimeServiceTest(unittest.TestCase):
         self.assertEqual([row["notion_page_id"] for row in pages], [self.root_id])
 
     def test_status_exposes_current_snapshot_and_pending_projection(self) -> None:
-        RuntimeService(self.workspace, self.fake, sleeper=lambda _: None).collect_document(
-            self.document.planning_document_id
-        )
+        RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        ).collect_document(self.document.planning_document_id)
         PendingOperationService(self.workspace.database).schedule(
             "PROJECT_DOCUMENT",
             self.document.planning_document_id,

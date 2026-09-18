@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, notion_id, page, paragraph
+
 from spec_trace.collector import SourceCollector
 from spec_trace.devflow import DevFlowService
 from spec_trace.errors import ExternalServiceError, StateConflict
@@ -15,8 +17,6 @@ from spec_trace.repositories import RepositoryService
 from spec_trace.review import FinalSpecService, ReviewService
 from spec_trace.util import new_id, utc_now
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, notion_id, page, paragraph
 
 
 class ReviewFlowTest(unittest.TestCase):
@@ -28,7 +28,11 @@ class ReviewFlowTest(unittest.TestCase):
         self.data_source_id = notion_id(701)
         self.root_id = notion_id(20)
         self.fake = FakeNotion(
-            pages={self.root_id: page(self.root_id, "근태정책", data_source_id=self.data_source_id)},
+            pages={
+                self.root_id: page(
+                    self.root_id, "근태정책", data_source_id=self.data_source_id
+                )
+            },
             children={self.root_id: [paragraph(notion_id(2001), "주간 근무 정책")]},
         )
         self.fake.root_page_id = self.root_id
@@ -36,13 +40,15 @@ class ReviewFlowTest(unittest.TestCase):
             "id": self.database_id,
             "data_sources": [{"id": self.data_source_id, "name": "기획"}],
         }
-        self.document = PlanningDocumentService(self.workspace.database, self.fake).register(
-            self.database_id, self.root_id
-        )
+        self.document = PlanningDocumentService(
+            self.workspace.database, self.fake
+        ).register(self.database_id, self.root_id)
         self.snapshot = SourceCollector(
             self.workspace.database, self.workspace.content_store, self.fake
         ).collect(self.document.planning_document_id)
-        self.cycle_id, self.developer_finding_id, self.planner_finding_id = self._seed_findings()
+        self.cycle_id, self.developer_finding_id, self.planner_finding_id = (
+            self._seed_findings()
+        )
         self.review = ReviewService(self.workspace.database)
 
     def tearDown(self) -> None:
@@ -60,7 +66,12 @@ class ReviewFlowTest(unittest.TestCase):
                     review_type, status, created_at
                 ) VALUES (?, ?, ?, 'INITIAL', 'REVIEWING', ?)
                 """,
-                (cycle_id, self.document.planning_document_id, self.snapshot.snapshot_id, utc_now()),
+                (
+                    cycle_id,
+                    self.document.planning_document_id,
+                    self.snapshot.snapshot_id,
+                    utc_now(),
+                ),
             )
             connection.execute(
                 """
@@ -84,7 +95,12 @@ class ReviewFlowTest(unittest.TestCase):
 
     @staticmethod
     def _source_evidence(snapshot_id: str) -> list[dict]:
-        return [{"type": "SOURCE", "payload": {"planning_document_snapshot_id": snapshot_id}}]
+        return [
+            {
+                "type": "SOURCE",
+                "payload": {"planning_document_snapshot_id": snapshot_id},
+            }
+        ]
 
     def test_projection_answer_final_spec_and_devflow_round_trip(self) -> None:
         developer_decision = self.review.adopt_developer_decision(
@@ -131,9 +147,12 @@ class ReviewFlowTest(unittest.TestCase):
 
         connection = self.workspace.database.connect()
         try:
-            review_pages = connection.execute("SELECT COUNT(*) AS c FROM notion_review_pages").fetchone()["c"]
+            review_pages = connection.execute(
+                "SELECT COUNT(*) AS c FROM notion_review_pages"
+            ).fetchone()["c"]
             question_mapping = connection.execute(
-                "SELECT * FROM notion_question_blocks WHERE open_question_id = ?", (question_id,)
+                "SELECT * FROM notion_question_blocks WHERE open_question_id = ?",
+                (question_id,),
             ).fetchone()
         finally:
             connection.close()
@@ -147,7 +166,21 @@ class ReviewFlowTest(unittest.TestCase):
 
         self.fake.append_block_children(
             question_mapping["answer_slot_block_id"],
-            [{"object": "block", "type": "paragraph", "paragraph": {"rich_text": [{"type": "text", "text": {"content": "15시간 유지"}, "plain_text": "15시간 유지"}]}}],
+            [
+                {
+                    "object": "block",
+                    "type": "paragraph",
+                    "paragraph": {
+                        "rich_text": [
+                            {
+                                "type": "text",
+                                "text": {"content": "15시간 유지"},
+                                "plain_text": "15시간 유지",
+                            }
+                        ]
+                    },
+                }
+            ],
         )
         answered = projection.sync(self.document.planning_document_id)
         self.assertEqual(answered["answers_collected"], 1)
@@ -157,7 +190,8 @@ class ReviewFlowTest(unittest.TestCase):
         connection = self.workspace.database.connect()
         try:
             planner_answer = connection.execute(
-                "SELECT * FROM planner_answers WHERE open_question_id = ?", (question_id,)
+                "SELECT * FROM planner_answers WHERE open_question_id = ?",
+                (question_id,),
             ).fetchone()
             decisions_before_verify = connection.execute(
                 "SELECT COUNT(*) AS c FROM decisions WHERE owner = 'PLANNER'"
@@ -177,25 +211,42 @@ class ReviewFlowTest(unittest.TestCase):
         self.assertIsNotNone(planner_decision)
 
         final_path = self.workspace.root / "final-spec.md"
-        final_path.write_text("# 최종설계\n\n공휴일에도 주 15시간 기준을 유지한다.\n", encoding="utf-8")
-        final_service = FinalSpecService(self.workspace.database, self.workspace.content_store)
+        final_path.write_text(
+            "# 최종설계\n\n공휴일에도 주 15시간 기준을 유지한다.\n", encoding="utf-8"
+        )
+        final_service = FinalSpecService(
+            self.workspace.database, self.workspace.content_store
+        )
         with self.assertRaises(StateConflict):
             final_service.create(self.document.planning_document_id, final_path)
 
         resume = self.review.resolve_blocker(blocker_id, "정책 확정")
         self.assertEqual(resume, ["WORK-weekly-time"])
-        revision_id = final_service.create(self.document.planning_document_id, final_path)
+        revision_id = final_service.create(
+            self.document.planning_document_id, final_path
+        )
 
         repo_dir = self.workspace.root / "repo"
         repo_dir.mkdir()
         subprocess.run(["git", "init", "-q", str(repo_dir)], check=True)
-        subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"], check=True)
-        subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "Test"], check=True)
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "user.email", "test@example.com"],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "config", "user.name", "Test"], check=True
+        )
         (repo_dir / "service.py").write_text("POLICY = 15\n", encoding="utf-8")
         subprocess.run(["git", "-C", str(repo_dir), "add", "service.py"], check=True)
-        subprocess.run(["git", "-C", str(repo_dir), "commit", "-qm", "implement"], check=True)
-        repository = RepositoryService(self.workspace.database, self.workspace.root).add("fixture", str(repo_dir))
-        commit_sha = subprocess.check_output(["git", "-C", str(repo_dir), "rev-parse", "HEAD"], text=True).strip()
+        subprocess.run(
+            ["git", "-C", str(repo_dir), "commit", "-qm", "implement"], check=True
+        )
+        repository = RepositoryService(
+            self.workspace.database, self.workspace.root
+        ).add("fixture", str(repo_dir))
+        commit_sha = subprocess.check_output(
+            ["git", "-C", str(repo_dir), "rev-parse", "HEAD"], text=True
+        ).strip()
 
         devflow = DevFlowService(
             self.workspace.database,
@@ -204,7 +255,14 @@ class ReviewFlowTest(unittest.TestCase):
             self.workspace.exports_dir,
         )
         handoff = devflow.export(revision_id)
-        for name in ["manifest.json", "final-spec.md", "decisions.json", "blockers.json", "traceability.json", "implementation-receipt.schema.json"]:
+        for name in [
+            "manifest.json",
+            "final-spec.md",
+            "decisions.json",
+            "blockers.json",
+            "traceability.json",
+            "implementation-receipt.schema.json",
+        ]:
             self.assertTrue((handoff / name).exists(), name)
 
         receipt = {
@@ -222,7 +280,9 @@ class ReviewFlowTest(unittest.TestCase):
         implementation_ref = devflow.import_receipt(receipt_path)
         self.assertTrue(implementation_ref)
 
-    def test_projection_failure_keeps_internal_decision_and_schedules_recovery(self) -> None:
+    def test_projection_failure_keeps_internal_decision_and_schedules_recovery(
+        self,
+    ) -> None:
         decision_id = self.review.adopt_developer_decision(
             self.developer_finding_id,
             {
@@ -233,13 +293,18 @@ class ReviewFlowTest(unittest.TestCase):
         )
         self.fake.fail_next_write = True
         with self.assertRaises(ExternalServiceError):
-            ProjectionService(self.workspace.database, self.fake).sync(self.document.planning_document_id)
+            ProjectionService(self.workspace.database, self.fake).sync(
+                self.document.planning_document_id
+            )
 
         connection = self.workspace.database.connect()
         try:
-            decision = connection.execute("SELECT status FROM decisions WHERE decision_id = ?", (decision_id,)).fetchone()
+            decision = connection.execute(
+                "SELECT status FROM decisions WHERE decision_id = ?", (decision_id,)
+            ).fetchone()
             pending = connection.execute(
-                "SELECT * FROM pending_operations WHERE dedupe_key = ?", (f"projection:{self.document.planning_document_id}",)
+                "SELECT * FROM pending_operations WHERE dedupe_key = ?",
+                (f"projection:{self.document.planning_document_id}",),
             ).fetchone()
         finally:
             connection.close()

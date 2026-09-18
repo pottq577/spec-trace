@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, menu_page, notion_id
+
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, menu_page, notion_id
 
 
 class SourceSyncTest(unittest.TestCase):
@@ -86,9 +86,9 @@ class SourceSyncTest(unittest.TestCase):
         self.fake.pages[self.child_id]["properties"]["Name"]["title"][0][
             "plain_text"
         ] = "근무유형별 근무기준등록 v2"
-        self.fake.pages[self.child_id]["properties"]["Name"]["title"][0][
-            "text"
-        ]["content"] = "근무유형별 근무기준등록 v2"
+        self.fake.pages[self.child_id]["properties"]["Name"]["title"][0]["text"][
+            "content"
+        ] = "근무유형별 근무기준등록 v2"
         del self.fake.pages[self.root_id]
 
         second = self.service.sync_data_source(

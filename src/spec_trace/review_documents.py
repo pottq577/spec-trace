@@ -82,7 +82,9 @@ class ReviewDocumentService:
         relative_paths: list[str],
     ) -> list[dict[str, Any]]:
         if self.notion is None:
-            raise ValidationError("Notion client is required to publish review documents")
+            raise ValidationError(
+                "Notion client is required to publish review documents"
+            )
         if not relative_paths:
             raise ValidationError("select at least one Markdown document to publish")
         directory = self.source_export.document_directory(planning_document_id)
@@ -108,7 +110,9 @@ class ReviewDocumentService:
         self, planning_document_id: str | None = None
     ) -> list[dict[str, Any]]:
         if self.notion is None:
-            raise ValidationError("Notion client is required to collect review responses")
+            raise ValidationError(
+                "Notion client is required to collect review responses"
+            )
         connection = self.database.connect()
         try:
             if planning_document_id:
@@ -173,7 +177,9 @@ class ReviewDocumentService:
         path = (directory / relative_path).resolve()
         content = path.read_text(encoding="utf-8")
         if _MANAGED_MARKER in content[:1000]:
-            raise ValidationError("Notion source Markdown cannot be published as a review document")
+            raise ValidationError(
+                "Notion source Markdown cannot be published as a review document"
+            )
         digest = sha256_text(content)
         title = _markdown_title(content, path.stem)
 
@@ -220,12 +226,18 @@ class ReviewDocumentService:
         ]
         created_footer = self.notion.append_block_children(page_id, footer)
         if len(created_footer) != 2:
-            raise ValidationError("Notion returned an incomplete review document footer")
+            raise ValidationError(
+                "Notion returned an incomplete review document footer"
+            )
         answer_slot_id = normalize_notion_id(str(created_footer[-1]["id"]))
         if previous_answer:
             self._append_chunks(
                 answer_slot_id,
-                [_paragraph_block(line) for line in previous_answer.splitlines() if line.strip()],
+                [
+                    _paragraph_block(line)
+                    for line in previous_answer.splitlines()
+                    if line.strip()
+                ],
             )
 
         now = utc_now()
@@ -326,7 +338,9 @@ class ReviewDocumentService:
     def _read_answer(self, block_id: str) -> str:
         lines: list[str] = []
         self._read_answer_children(block_id, lines)
-        normalized = [" ".join(line.split()) for line in lines if " ".join(line.split())]
+        normalized = [
+            " ".join(line.split()) for line in lines if " ".join(line.split())
+        ]
         return "\n".join(normalized).strip()
 
     def _read_answer_children(self, block_id: str, lines: list[str]) -> None:
@@ -383,7 +397,9 @@ class ReviewDocumentService:
         try:
             candidate.relative_to(directory.resolve())
         except ValueError as exc:
-            raise ValidationError(f"local Markdown path escapes document directory: {value}") from exc
+            raise ValidationError(
+                f"local Markdown path escapes document directory: {value}"
+            ) from exc
         if candidate.suffix.lower() != ".md" or not candidate.is_file():
             raise ValidationError(f"local Markdown file not found: {value}")
         return candidate.relative_to(directory.resolve()).as_posix()
@@ -618,8 +634,6 @@ def _table_block(lines: list[str]) -> dict[str, Any]:
 
 def _split_table_row(line: str) -> list[str]:
     value = line.strip()
-    if value.startswith("|"):
-        value = value[1:]
-    if value.endswith("|"):
-        value = value[:-1]
+    value = value.removeprefix("|")
+    value = value.removesuffix("|")
     return [cell.strip() for cell in value.split("|")]

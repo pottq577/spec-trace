@@ -11,7 +11,9 @@ class EvidenceService:
     def __init__(self, database: Database):
         self.database = database
 
-    def ensure(self, evidence_type: str, payload: dict[str, Any], connection=None) -> str:
+    def ensure(
+        self, evidence_type: str, payload: dict[str, Any], connection=None
+    ) -> str:
         payload_json = canonical_json_bytes(payload).decode("utf-8")
         payload_hash = sha256_bytes(payload_json.encode("utf-8"))
         owns_connection = connection is None
@@ -41,4 +43,7 @@ class EvidenceService:
 
     @staticmethod
     def decode(row) -> dict[str, Any]:
-        return {"type": row["evidence_type"], "payload": json.loads(row["payload_json"])}
+        return {
+            "type": row["evidence_type"],
+            "payload": json.loads(row["payload_json"]),
+        }

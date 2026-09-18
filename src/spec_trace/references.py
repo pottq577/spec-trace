@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import json
 import re
-from typing import Any, Iterator
+from collections.abc import Iterator
+from typing import Any
 
 from .notion import normalize_notion_id
 
@@ -26,7 +27,9 @@ def extract_block_references(blocks: list[dict[str, Any]]) -> list[dict[str, str
     return list(found.values())
 
 
-def _walk(value: Any, path: tuple[str | int, ...]) -> Iterator[tuple[tuple[str | int, ...], Any]]:
+def _walk(
+    value: Any, path: tuple[str | int, ...]
+) -> Iterator[tuple[tuple[str | int, ...], Any]]:
     if isinstance(value, dict):
         yield path, value
         for key, child in value.items():

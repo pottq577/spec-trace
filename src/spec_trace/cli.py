@@ -27,7 +27,12 @@ def _workspace(args: argparse.Namespace) -> Workspace:
 
 def _emit(args: argparse.Namespace, result: Any) -> None:
     if args.json:
-        print(json.dumps({"ok": True, "code": 0, "result": result, "errors": []}, ensure_ascii=False))
+        print(
+            json.dumps(
+                {"ok": True, "code": 0, "result": result, "errors": []},
+                ensure_ascii=False,
+            )
+        )
     elif isinstance(result, str):
         print(result)
     else:
@@ -81,7 +86,9 @@ def build_parser() -> argparse.ArgumentParser:
     analysis = sub.add_parser("analysis")
     analysis_sub = analysis.add_subparsers(dest="analysis_command", required=True)
     analysis_export = analysis_sub.add_parser("export")
-    analysis_export.add_argument("--type", required=True, choices=["source-diff", "impact", "review"])
+    analysis_export.add_argument(
+        "--type", required=True, choices=["source-diff", "impact", "review"]
+    )
     analysis_export.add_argument("--change-set")
     analysis_export.add_argument("--document")
     analysis_import = analysis_sub.add_parser("import")
@@ -94,7 +101,9 @@ def build_parser() -> argparse.ArgumentParser:
     proposal_review = proposal_sub.add_parser("review")
     proposal_review.add_argument("--proposal", required=True)
     proposal_review.add_argument("--candidate", required=True)
-    proposal_review.add_argument("--action", required=True, choices=["adopt", "edit-and-adopt", "reject"])
+    proposal_review.add_argument(
+        "--action", required=True, choices=["adopt", "edit-and-adopt", "reject"]
+    )
     proposal_review.add_argument("--payload")
     proposal_review.add_argument("--reason")
     proposal_review.add_argument("--reviewer", default="developer")
@@ -150,7 +159,10 @@ def run(args: argparse.Namespace) -> Any:
     workspace = _workspace(args)
     if args.command == "init":
         workspace.initialize()
-        return {"workspace": str(workspace.root), "database": str(workspace.database_path)}
+        return {
+            "workspace": str(workspace.root),
+            "database": str(workspace.database_path),
+        }
 
     workspace.initialize()
     if args.command == "repo":
@@ -197,12 +209,13 @@ def run(args: argparse.Namespace) -> Any:
             )
         service = LiveSmokeService(workspace, notion)
         with WorkspaceLock(workspace):
-            return service.run(
-                database_id, page_id, allow_write=args.allow_write
-            )
+            return service.run(database_id, page_id, allow_write=args.allow_write)
     if args.command in {"analysis", "proposal"}:
         service = AnalysisService(
-            workspace.database, workspace.content_store, workspace.root, workspace.analysis_requests_dir
+            workspace.database,
+            workspace.content_store,
+            workspace.root,
+            workspace.analysis_requests_dir,
         )
         if args.command == "analysis" and args.analysis_command == "export":
             subject = args.document if args.type == "review" else args.change_set
@@ -220,11 +233,17 @@ def run(args: argparse.Namespace) -> Any:
         if args.command == "proposal" and args.proposal_command == "review":
             reviewed_payload = None
             if args.payload:
-                reviewed_payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
+                reviewed_payload = json.loads(
+                    Path(args.payload).read_text(encoding="utf-8")
+                )
             with WorkspaceLock(workspace):
                 return service.review_candidate(
-                    args.proposal, args.candidate, args.action, reviewer=args.reviewer,
-                    reviewed_payload=reviewed_payload, reason=args.reason
+                    args.proposal,
+                    args.candidate,
+                    args.action,
+                    reviewer=args.reviewer,
+                    reviewed_payload=reviewed_payload,
+                    reason=args.reason,
                 )
     if args.command in {"decision", "question", "answer", "blocker"}:
         service = ReviewService(workspace.database)
@@ -245,7 +264,9 @@ def run(args: argparse.Namespace) -> Any:
             if not args.reopen and not args.payload:
                 raise ValidationError("--payload is required unless --reopen is used")
             with WorkspaceLock(workspace):
-                decision_id = service.verify_answer(args.answer, payload, reopen=args.reopen)
+                decision_id = service.verify_answer(
+                    args.answer, payload, reopen=args.reopen
+                )
             return {"decision_id": decision_id, "reopened": bool(args.reopen)}
         if args.command == "blocker" and args.blocker_command == "set":
             payload = json.loads(Path(args.payload).read_text(encoding="utf-8"))
@@ -268,7 +289,10 @@ def run(args: argparse.Namespace) -> Any:
             return service.sync(args.document)
     if args.command == "devflow":
         service = DevFlowService(
-            workspace.database, workspace.content_store, workspace.root, workspace.exports_dir
+            workspace.database,
+            workspace.content_store,
+            workspace.root,
+            workspace.exports_dir,
         )
         if args.devflow_command == "export":
             with WorkspaceLock(workspace):

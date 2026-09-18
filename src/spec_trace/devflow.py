@@ -14,7 +14,13 @@ CONTRACT_VERSION = "1"
 
 
 class DevFlowService:
-    def __init__(self, database: Database, content_store: ContentStore, workspace_root: Path, exports_dir: Path):
+    def __init__(
+        self,
+        database: Database,
+        content_store: ContentStore,
+        workspace_root: Path,
+        exports_dir: Path,
+    ):
         self.database = database
         self.content_store = content_store
         self.workspace_root = workspace_root
@@ -32,9 +38,13 @@ class DevFlowService:
                 (final_spec_revision_id,),
             ).fetchone()
             if revision is None:
-                raise ResourceNotFound(f"FinalSpecRevision not found: {final_spec_revision_id}")
+                raise ResourceNotFound(
+                    f"FinalSpecRevision not found: {final_spec_revision_id}"
+                )
             if revision["current_revision_id"] != final_spec_revision_id:
-                raise StateConflict("DevFlow export requires the current FinalSpecRevision")
+                raise StateConflict(
+                    "DevFlow export requires the current FinalSpecRevision"
+                )
             document = connection.execute(
                 "SELECT current_snapshot_id FROM planning_documents WHERE planning_document_id = ?",
                 (revision["planning_document_id"],),
@@ -48,7 +58,9 @@ class DevFlowService:
             ).fetchall()
             snapshot_ids = [row["planning_document_snapshot_id"] for row in snapshots]
             if document["current_snapshot_id"] not in snapshot_ids:
-                raise StateConflict("FinalSpecRevision is stale against the current PlanningDocumentSnapshot")
+                raise StateConflict(
+                    "FinalSpecRevision is stale against the current PlanningDocumentSnapshot"
+                )
             decision_rows = connection.execute(
                 """
                 SELECT d.* FROM decisions d JOIN final_spec_revision_decisions fsrd
@@ -66,9 +78,13 @@ class DevFlowService:
                 """,
                 (revision["planning_document_id"],),
             ).fetchall()
-            decisions = [self._decision_payload(connection, row) for row in decision_rows]
+            decisions = [
+                self._decision_payload(connection, row) for row in decision_rows
+            ]
             blockers = [self._blocker_payload(connection, row) for row in blocker_rows]
-            traceability = self._traceability_payload(connection, revision["planning_document_id"], final_spec_revision_id)
+            traceability = self._traceability_payload(
+                connection, revision["planning_document_id"], final_spec_revision_id
+            )
         finally:
             connection.close()
 
@@ -81,7 +97,9 @@ class DevFlowService:
         self._write_json(target / "decisions.json", {"decisions": decisions})
         self._write_json(target / "blockers.json", {"blockers": blockers})
         self._write_json(target / "traceability.json", traceability)
-        self._write_json(target / "implementation-receipt.schema.json", self._receipt_schema())
+        self._write_json(
+            target / "implementation-receipt.schema.json", self._receipt_schema()
+        )
         manifest = {
             "contract_version": CONTRACT_VERSION,
             "export_id": final_spec_revision_id,
@@ -102,10 +120,19 @@ class DevFlowService:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise ValidationError(f"invalid implementation receipt: {path}") from exc
-        required = {"contract_version", "final_spec_revision_id", "repository", "commit_sha", "path_refs", "decision_ids"}
+        required = {
+            "contract_version",
+            "final_spec_revision_id",
+            "repository",
+            "commit_sha",
+            "path_refs",
+            "decision_ids",
+        }
         missing = required - payload.keys()
         if missing:
-            raise ValidationError(f"receipt missing fields: {', '.join(sorted(missing))}")
+            raise ValidationError(
+                f"receipt missing fields: {', '.join(sorted(missing))}"
+            )
         if payload["contract_version"] != CONTRACT_VERSION:
             raise ValidationError("unsupported implementation receipt contract version")
         connection = self.database.connect()
@@ -127,10 +154,14 @@ class DevFlowService:
             connection.close()
         requested_decisions = set(payload["decision_ids"])
         if not requested_decisions.issubset(allowed_decisions):
-            raise ValidationError("receipt decision_ids must be included in the FinalSpecRevision")
+            raise ValidationError(
+                "receipt decision_ids must be included in the FinalSpecRevision"
+            )
         repository = self._resolve_repository(str(payload["repository"]))
         repo_service = RepositoryService(self.database, self.workspace_root)
-        commit_sha = repo_service.verify_commit(repository.repository_id, str(payload["commit_sha"]))
+        commit_sha = repo_service.verify_commit(
+            repository.repository_id, str(payload["commit_sha"])
+        )
         normalized_paths: list[dict[str, str | None]] = []
         for item in payload["path_refs"]:
             if isinstance(item, str):
@@ -139,7 +170,9 @@ class DevFlowService:
             else:
                 path_value = str(item.get("path") or "")
                 symbol = item.get("symbol")
-            if not path_value or not repo_service.path_exists_at_commit(repository.repository_id, commit_sha, path_value):
+            if not path_value or not repo_service.path_exists_at_commit(
+                repository.repository_id, commit_sha, path_value
+            ):
                 raise ValidationError(f"path does not exist at commit: {path_value}")
             normalized_paths.append({"path": path_value, "symbol": symbol})
         with self.database.transaction() as connection:
@@ -150,8 +183,10 @@ class DevFlowService:
                   AND work_ref IS ?
                 """,
                 (
-                    payload["final_spec_revision_id"], repository.repository_id,
-                    commit_sha, payload.get("work_ref"),
+                    payload["final_spec_revision_id"],
+                    repository.repository_id,
+                    commit_sha,
+                    payload.get("work_ref"),
                 ),
             ).fetchone()
             if existing:
@@ -165,8 +200,11 @@ class DevFlowService:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    implementation_ref_id, payload["final_spec_revision_id"],
-                    repository.repository_id, commit_sha, payload.get("work_ref"),
+                    implementation_ref_id,
+                    payload["final_spec_revision_id"],
+                    repository.repository_id,
+                    commit_sha,
+                    payload.get("work_ref"),
                     json.dumps(payload["decision_ids"], separators=(",", ":")),
                     payload.get("verified_at") or utc_now(),
                 ),
@@ -181,7 +219,11 @@ class DevFlowService:
     def _resolve_repository(self, value: str):
         service = RepositoryService(self.database, self.workspace_root)
         for repository in service.list():
-            if value in {repository.repository_id, repository.name, repository.remote_identity}:
+            if value in {
+                repository.repository_id,
+                repository.name,
+                repository.remote_identity,
+            }:
                 return repository
         raise ResourceNotFound(f"repository not registered: {value}")
 
@@ -199,7 +241,11 @@ class DevFlowService:
             "adopted_option": row["adopted_option"],
             "rationale": row["rationale"],
             "evidence_refs": [
-                {"evidence_ref_id": item["evidence_ref_id"], "type": item["evidence_type"], "payload": json.loads(item["payload_json"])}
+                {
+                    "evidence_ref_id": item["evidence_ref_id"],
+                    "type": item["evidence_type"],
+                    "payload": json.loads(item["payload_json"]),
+                }
                 for item in evidence
             ],
             "supersedes_decision_id": row["supersedes_decision_id"],
@@ -220,7 +266,9 @@ class DevFlowService:
         }
 
     @staticmethod
-    def _traceability_payload(connection, planning_document_id: str, revision_id: str) -> dict[str, Any]:
+    def _traceability_payload(
+        connection, planning_document_id: str, revision_id: str
+    ) -> dict[str, Any]:
         cycles = connection.execute(
             "SELECT review_cycle_id, target_planning_snapshot_id, baseline_planning_snapshot_id FROM review_cycles WHERE planning_document_id = ?",
             (planning_document_id,),
@@ -249,7 +297,14 @@ class DevFlowService:
         return {
             "$schema": "https://json-schema.org/draft/2020-12/schema",
             "type": "object",
-            "required": ["contract_version", "final_spec_revision_id", "repository", "commit_sha", "path_refs", "decision_ids"],
+            "required": [
+                "contract_version",
+                "final_spec_revision_id",
+                "repository",
+                "commit_sha",
+                "path_refs",
+                "decision_ids",
+            ],
             "properties": {
                 "contract_version": {"const": CONTRACT_VERSION},
                 "final_spec_revision_id": {"type": "string"},
@@ -264,9 +319,13 @@ class DevFlowService:
 
     @staticmethod
     def _write_json(path: Path, payload: Any) -> None:
-        path.write_text(json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        path.write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
 
     @staticmethod
     def _sha256(payload: bytes) -> str:
         import hashlib
+
         return hashlib.sha256(payload).hexdigest()

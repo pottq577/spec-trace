@@ -50,7 +50,9 @@ def canonical_block(block: dict[str, Any]) -> dict[str, Any]:
     result: dict[str, Any] = {"type": block_type}
     if block_type == "child_page":
         result["notion_page_id"] = normalize_notion_id(str(block["id"]))
-        result["title"] = normalize_text(str((block.get("child_page") or {}).get("title") or ""))
+        result["title"] = normalize_text(
+            str((block.get("child_page") or {}).get("title") or "")
+        )
     else:
         payload = block.get(block_type)
         if payload is not None:

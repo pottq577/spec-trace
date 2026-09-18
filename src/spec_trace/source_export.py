@@ -11,7 +11,6 @@ from .config import SettingsService
 from .errors import ResourceNotFound, ValidationError
 from .workspace import Workspace
 
-
 _MANAGED_MARKER = "specTraceManaged: true"
 _PREFIX_RE = re.compile(r"^\s*\d+[_\-\s]*")
 _INVALID_FILENAME_RE = re.compile(r"[\\/:*?\"<>|\x00-\x1f]")
@@ -24,9 +23,13 @@ class SourceExportService:
         self.content_store = workspace.content_store
         self.settings = SettingsService(workspace)
 
-    def export(self, planning_document_id: str, output_root: Path | None = None) -> dict[str, Any]:
+    def export(
+        self, planning_document_id: str, output_root: Path | None = None
+    ) -> dict[str, Any]:
         document, snapshot, pages = self._load_snapshot(planning_document_id)
-        root = (output_root or self.settings.resolve_export_root()).expanduser().resolve()
+        root = (
+            (output_root or self.settings.resolve_export_root()).expanduser().resolve()
+        )
         if not root.is_dir():
             raise ValidationError(f"document export root is not a directory: {root}")
 
@@ -40,7 +43,9 @@ class SourceExportService:
         page_map = {row["notion_page_id"]: row for row in pages}
         root_page = page_map.get(document["root_notion_page_id"])
         if root_page is None:
-            raise ResourceNotFound("current snapshot does not contain the root Notion page")
+            raise ResourceNotFound(
+                "current snapshot does not contain the root Notion page"
+            )
 
         markdown = self._render_document(document, snapshot, root_page, page_map)
         self._atomic_write(target, markdown)
@@ -68,9 +73,7 @@ class SourceExportService:
                 f"planning document not found: {planning_document_id}"
             )
         root = self.settings.resolve_export_root()
-        return self._resolve_document_directory(
-            root, document["root_notion_page_id"]
-        )
+        return self._resolve_document_directory(root, document["root_notion_page_id"])
 
     def _load_snapshot(self, planning_document_id: str):
         connection = self.database.connect()
@@ -153,11 +156,15 @@ class SourceExportService:
         if exact.is_dir():
             return exact
         normalized = self._normalized_name(safe_title)
-        matches = [
-            child
-            for child in parent.iterdir()
-            if child.is_dir() and self._normalized_name(child.name) == normalized
-        ] if parent.is_dir() else []
+        matches = (
+            [
+                child
+                for child in parent.iterdir()
+                if child.is_dir() and self._normalized_name(child.name) == normalized
+            ]
+            if parent.is_dir()
+            else []
+        )
         if len(matches) == 1:
             return matches[0]
         if len(matches) > 1:
@@ -377,9 +384,7 @@ def _rich_text(values: list[dict[str, Any]]) -> str:
     parts: list[str] = []
     for item in values:
         text = str(
-            item.get("plain_text")
-            or (item.get("text") or {}).get("content")
-            or ""
+            item.get("plain_text") or (item.get("text") or {}).get("content") or ""
         )
         if not text:
             continue

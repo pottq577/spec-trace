@@ -4,11 +4,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from fakes import FakeNotion, menu_page, notion_id
+
 from spec_trace.config import SettingsService
 from spec_trace.runtime import RuntimeService
 from spec_trace.workspace import Workspace
-
-from fakes import FakeNotion, menu_page, notion_id
 
 
 class OperatingCycleTest(unittest.TestCase):

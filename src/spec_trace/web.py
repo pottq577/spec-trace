@@ -2,24 +2,28 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import threading
 import webbrowser
+from collections.abc import Callable
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import SettingsService
 from .errors import SpecTraceError, ValidationError
 from .notion import NotionCliClient, NotionPort
-from .runtime import RuntimeService
 from .review_documents import ReviewDocumentService
+from .runtime import RuntimeService
 from .source_export import SourceExportService
 from .workspace import Workspace, WorkspaceLock
 
+logger = logging.getLogger(__name__)
 
-HTML = r'''<!doctype html>
+
+HTML = r"""<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
@@ -141,6 +145,7 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
 <script>
 let state = null;
 let folderState = null;
+let cyclePolling = false;
 const $ = (id) => document.getElementById(id);
 async function api(path, options={}) {
   const response = await fetch(path, {headers:{'Content-Type':'application/json'}, ...options});
@@ -158,6 +163,60 @@ async function load() {
   $('exportRoot').value = settings.export_root || state.suggested_export_root || '';
   $('suggestion').textContent = state.suggested_export_root ? `자동 제안: ${state.suggested_export_root}` : '';
   renderTree();
+  await restoreCycleState();
+}
+
+function renderCycleResult(result) {
+  const sync = result.source_sync || {};
+  const collections = result.collections || [];
+  const answers = result.answers || [];
+  const reviewResponses = result.review_responses || [];
+  $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 ${collections.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건`;
+}
+
+async function restoreCycleState() {
+  const job = await api('/api/cycle');
+  if (job.status === 'RUNNING') {
+    $('cycle').disabled = true;
+    $('cycleStatus').textContent = '실행 중… 새로고침해도 서버에서 계속 진행됩니다.';
+    if (!cyclePolling) void monitorCycle(job);
+    return;
+  }
+  if (job.status === 'FAILED') {
+    $('cycle').disabled = false;
+    $('cycleStatus').textContent = `실패: ${job.error || '전체 최신화에 실패했습니다.'}`;
+    return;
+  }
+  if (job.status === 'COMPLETED') {
+    $('cycle').disabled = false;
+    renderCycleResult(job.result || {});
+  }
+}
+
+async function monitorCycle(initialJob) {
+  if (cyclePolling) return;
+  cyclePolling = true;
+  $('cycle').disabled = true;
+  try {
+    let job = initialJob;
+    while (job.status === 'RUNNING') {
+      $('cycleStatus').textContent = '실행 중… 새로고침해도 서버에서 계속 진행됩니다.';
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      job = await api('/api/cycle');
+    }
+    if (job.status === 'FAILED') {
+      throw new Error(job.error || '전체 최신화에 실패했습니다.');
+    }
+    if (job.status === 'COMPLETED') {
+      renderCycleResult(job.result || {});
+      await load();
+    }
+  } catch (e) {
+    $('cycleStatus').textContent = `실패: ${e.message}`;
+  } finally {
+    cyclePolling = false;
+    $('cycle').disabled = false;
+  }
 }
 
 async function browseFolders(path='') {
@@ -303,32 +362,21 @@ $('saveSource').addEventListener('click', async () => {
   } catch (e) { $('sourceStatus').textContent = e.message; }
 });
 $('cycle').addEventListener('click', async () => {
+  if (cyclePolling) return;
   $('cycle').disabled = true;
   $('cycleStatus').textContent = '전체 최신화를 시작하는 중…';
   try {
-    let job = await api('/api/cycle', {method:'POST', body:'{}'});
-    while (job.status === 'RUNNING') {
-      $('cycleStatus').textContent = '실행 중… 브라우저를 닫아도 서버에서 계속 진행됩니다.';
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      job = await api('/api/cycle');
-    }
-    if (job.status === 'FAILED') {
-      throw new Error(job.error || '전체 최신화에 실패했습니다.');
-    }
-    const result = job.result || {};
-    const sync = result.source_sync || {};
-    const collections = result.collections || [];
-    const answers = result.answers || [];
-    const reviewResponses = result.review_responses || [];
-    $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 ${collections.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건`;
-    await load();
-  } catch (e) { $('cycleStatus').textContent = e.message; }
-  finally { $('cycle').disabled = false; }
+    const job = await api('/api/cycle', {method:'POST', body:'{}'});
+    await monitorCycle(job);
+  } catch (e) {
+    $('cycleStatus').textContent = `실패: ${e.message}`;
+    $('cycle').disabled = false;
+  }
 });
 load().catch((e) => { $('tree').innerHTML = `<div class="status">${escapeHtml(e.message)}</div>`; });
 </script>
 </body>
-</html>'''
+</html>"""
 
 
 class WebApplication:
@@ -346,7 +394,11 @@ class WebApplication:
         self.browse_root = (browse_root or self._default_browse_root()).resolve()
         self.cycle_runner = cycle_runner
         self._cycle_guard = threading.Lock()
-        self._cycle_job: dict[str, Any] = {"status": "IDLE", "result": None, "error": None}
+        self._cycle_job: dict[str, Any] = {
+            "status": "IDLE",
+            "result": None,
+            "error": None,
+        }
 
     def state(self) -> dict[str, Any]:
         settings = self.settings.load()
@@ -377,7 +429,9 @@ class WebApplication:
 
         directories: list[dict[str, str]] = []
         try:
-            children = sorted(current.iterdir(), key=lambda value: value.name.casefold())
+            children = sorted(
+                current.iterdir(), key=lambda value: value.name.casefold()
+            )
         except OSError as exc:
             raise ValidationError(f"cannot read directory: {current}") from exc
         for child in children:
@@ -455,9 +509,11 @@ class WebApplication:
             return dict(self._cycle_job)
 
     def _run_cycle_job(self) -> None:
+        logger.info("cycle job started")
         try:
             result = self.run_cycle()
         except SpecTraceError as exc:
+            logger.exception("cycle job failed: %s", exc)
             with self._cycle_guard:
                 self._cycle_job = {
                     "status": "FAILED",
@@ -465,6 +521,7 @@ class WebApplication:
                     "error": str(exc),
                 }
         except Exception as exc:
+            logger.exception("cycle job failed with unexpected error")
             with self._cycle_guard:
                 self._cycle_job = {
                     "status": "FAILED",
@@ -472,8 +529,13 @@ class WebApplication:
                     "error": f"internal error: {type(exc).__name__}",
                 }
         else:
+            logger.info("cycle job completed")
             with self._cycle_guard:
-                self._cycle_job = {"status": "COMPLETED", "result": result, "error": None}
+                self._cycle_job = {
+                    "status": "COMPLETED",
+                    "result": result,
+                    "error": None,
+                }
 
     def run_cycle(self) -> dict[str, Any]:
         if self.cycle_runner is not None:
@@ -488,7 +550,9 @@ class WebApplication:
             raise ValidationError("planning_document_id is required")
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
-            collection = RuntimeService(self.workspace, notion).collect_document(document_id)
+            collection = RuntimeService(self.workspace, notion).collect_document(
+                document_id
+            )
             if collection["status"] in {
                 "SOURCE_UNAVAILABLE",
                 "SOURCE_UNSTABLE",
@@ -514,9 +578,9 @@ class WebApplication:
             raise ValidationError("planning_document_id is required")
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
-            return ReviewDocumentService(
-                self.workspace, notion
-            ).publish(document_id, [str(path) for path in paths])
+            return ReviewDocumentService(self.workspace, notion).publish(
+                document_id, [str(path) for path in paths]
+            )
 
     def collect_review_responses(
         self, planning_document_id: str
@@ -526,9 +590,9 @@ class WebApplication:
             raise ValidationError("planning_document_id is required")
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
-            return ReviewDocumentService(
-                self.workspace, notion
-            ).collect_responses(document_id)
+            return ReviewDocumentService(self.workspace, notion).collect_responses(
+                document_id
+            )
 
     def _document_tree(self) -> list[dict[str, Any]]:
         connection = self.workspace.database.connect()
@@ -612,13 +676,17 @@ class RequestHandler(BaseHTTPRequestHandler):
         if path == "/api/export":
             payload = self._read_json()
             self._handle_json(
-                lambda: self.app.export_document(payload.get("planning_document_id", ""))
+                lambda: self.app.export_document(
+                    payload.get("planning_document_id", "")
+                )
             )
             return
         if path == "/api/local-documents":
             payload = self._read_json()
             self._handle_json(
-                lambda: self.app.local_documents(payload.get("planning_document_id", ""))
+                lambda: self.app.local_documents(
+                    payload.get("planning_document_id", "")
+                )
             )
             return
         if path == "/api/publish":
@@ -643,7 +711,15 @@ class RequestHandler(BaseHTTPRequestHandler):
         self.send_error(HTTPStatus.NOT_FOUND)
 
     def log_message(self, format: str, *args: Any) -> None:
-        return
+        path = urlparse(self.path).path
+        if self.command == "GET" and path == "/api/cycle":
+            return
+        logger.info(
+            "http method=%s path=%s %s",
+            self.command,
+            self.path,
+            format % args,
+        )
 
     def _read_json(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or "0")
@@ -663,10 +739,24 @@ class RequestHandler(BaseHTTPRequestHandler):
         try:
             self._send_json(action(), HTTPStatus.OK)
         except SpecTraceError as exc:
-            self._send_json({"error": str(exc), "code": exc.exit_code}, HTTPStatus.BAD_REQUEST)
-        except Exception as exc:
+            logger.warning(
+                "request failed method=%s path=%s error=%s",
+                self.command,
+                self.path,
+                exc,
+            )
             self._send_json(
-                {"error": f"internal error: {type(exc).__name__}"},
+                {"error": str(exc), "code": exc.exit_code},
+                HTTPStatus.BAD_REQUEST,
+            )
+        except Exception:
+            logger.exception(
+                "request failed method=%s path=%s",
+                self.command,
+                self.path,
+            )
+            self._send_json(
+                {"error": "internal error"},
                 HTTPStatus.INTERNAL_SERVER_ERROR,
             )
 
@@ -699,11 +789,13 @@ def serve(workspace: Workspace, port: int = 8788, *, open_browser: bool = True) 
     if not 1 <= port <= 65535:
         raise ValidationError("port must be between 1 and 65535")
     workspace.initialize()
+    with WorkspaceLock(workspace):
+        RuntimeService.recover_interrupted_collections(workspace)
     app = WebApplication(workspace)
     handler = type("SpecTraceRequestHandler", (RequestHandler,), {"app": app})
     server = ThreadingHTTPServer(("127.0.0.1", port), handler)
     url = f"http://127.0.0.1:{port}"
-    print(f"spec-trace web: {url}")
+    logger.info("server started url=%s workspace=%s", url, workspace.root)
     if open_browser:
         threading.Timer(0.15, lambda: webbrowser.open(url)).start()
     try:
@@ -723,6 +815,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
     args = build_parser().parse_args(argv)
     workspace = Workspace(Path(args.workspace).resolve())
     try:

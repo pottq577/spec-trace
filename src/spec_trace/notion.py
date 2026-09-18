@@ -7,7 +7,8 @@ import shutil
 import subprocess
 import threading
 import time
-from typing import Any, Callable, Protocol
+from collections.abc import Callable
+from typing import Any, Protocol
 
 from .errors import ExternalServiceError, ResourceNotFound, ValidationError
 
@@ -108,7 +109,7 @@ class NotionCliClient:
         self.runner = runner
 
     @classmethod
-    def from_environment(cls) -> "NotionCliClient":
+    def from_environment(cls) -> NotionCliClient:
         binary = os.environ.get("NTN_BIN", "ntn")
         if shutil.which(binary) is None:
             raise ValidationError(
@@ -160,9 +161,7 @@ class NotionCliClient:
                 "properties": {
                     "title": {
                         "type": "title",
-                        "title": [
-                            {"type": "text", "text": {"content": title}}
-                        ],
+                        "title": [{"type": "text", "text": {"content": title}}],
                     }
                 },
             },

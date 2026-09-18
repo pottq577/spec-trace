@@ -18,3 +18,8 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 spec_trace = ["migrations/*.sql"]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.16.8",
+]

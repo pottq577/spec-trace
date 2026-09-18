@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 import time
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 from .collector import SourceCollector
 from .config import SettingsService
@@ -11,7 +13,10 @@ from .notion import NotionPort
 from .planning_documents import PlanningDocumentService
 from .projection import ProjectionService
 from .review_documents import ReviewDocumentService
+from .util import utc_now
 from .workspace import Workspace
+
+logger = logging.getLogger(__name__)
 
 
 class StatusService:
@@ -181,18 +186,71 @@ class RuntimeService:
         self.notion = notion
         self.sleeper = sleeper
 
+    @staticmethod
+    def recover_interrupted_collections(
+        workspace: Workspace,
+    ) -> list[dict[str, Any]]:
+        now = utc_now()
+        with workspace.database.transaction() as connection:
+            rows = connection.execute(
+                """
+                SELECT collection_run_id, planning_document_id, started_at
+                FROM collection_runs
+                WHERE completed_at IS NULL
+                ORDER BY started_at, collection_run_id
+                """
+            ).fetchall()
+            if rows:
+                connection.execute(
+                    """
+                    UPDATE collection_runs
+                    SET status = 'COLLECTION_FAILED',
+                        failure_code = 'INTERRUPTED',
+                        retryable = 1,
+                        completed_at = ?
+                    WHERE completed_at IS NULL
+                    """,
+                    (now,),
+                )
+
+        for row in rows:
+            logger.warning(
+                "recovered interrupted collection run=%s document=%s started_at=%s",
+                row["collection_run_id"],
+                row["planning_document_id"],
+                row["started_at"],
+            )
+        return [dict(row) for row in rows]
+
     def collect_document(self, planning_document_id: str) -> dict[str, Any]:
         collector = SourceCollector(
             self.database, self.workspace.content_store, self.notion
         )
         attempts = 1
+        logger.info(
+            "collection start document=%s attempt=%d",
+            planning_document_id,
+            attempts,
+        )
         result = collector.collect(planning_document_id)
         for delay in self.RETRY_DELAYS:
             if result.status != "SOURCE_UNSTABLE":
                 break
+            logger.warning(
+                "collection retry document=%s attempt=%d delay=%.1fs",
+                planning_document_id,
+                attempts + 1,
+                delay,
+            )
             self.sleeper(delay)
             attempts += 1
             result = collector.collect(planning_document_id)
+        logger.info(
+            "collection complete document=%s status=%s attempts=%d",
+            planning_document_id,
+            result.status,
+            attempts,
+        )
         return {**result.__dict__, "attempts": attempts}
 
     def collect_all(self) -> list[dict[str, Any]]:
@@ -207,7 +265,21 @@ class RuntimeService:
             ).fetchall()
         finally:
             connection.close()
-        return [self.collect_document(row["planning_document_id"]) for row in rows]
+
+        total = len(rows)
+        logger.info("collection batch start total=%d", total)
+        results: list[dict[str, Any]] = []
+        for index, row in enumerate(rows, start=1):
+            document_id = row["planning_document_id"]
+            logger.info(
+                "collection batch progress current=%d total=%d document=%s",
+                index,
+                total,
+                document_id,
+            )
+            results.append(self.collect_document(document_id))
+        logger.info("collection batch complete total=%d", total)
+        return results
 
     def reconcile_pending(self) -> list[dict[str, Any]]:
         connection = self.database.connect()
@@ -299,13 +371,43 @@ class RuntimeService:
         return {"status": "COMPLETED", **result}
 
     def run_cycle(self) -> dict[str, Any]:
+        logger.info("cycle phase=source_sync start")
         source_sync = self.sync_source()
+        logger.info(
+            "cycle phase=source_sync complete status=%s active_pages=%s",
+            source_sync.get("status"),
+            source_sync.get("active_pages", 0),
+        )
+
+        logger.info("cycle phase=recovery start")
         recovery = self.reconcile_pending()
+        logger.info("cycle phase=recovery complete operations=%d", len(recovery))
+
+        logger.info("cycle phase=collect_all start")
         collections = self.collect_all()
+        logger.info(
+            "cycle phase=collect_all complete collections=%d",
+            len(collections),
+        )
+
+        logger.info("cycle phase=collect_answers start")
         answers = self.collect_answers()
+        logger.info(
+            "cycle phase=collect_answers complete documents=%d answers=%d",
+            len(answers),
+            sum(item.get("answers_collected", 0) for item in answers),
+        )
+
+        logger.info("cycle phase=review_responses start")
         review_responses = ReviewDocumentService(
             self.workspace, self.notion
         ).collect_responses()
+        logger.info(
+            "cycle phase=review_responses complete responses=%d",
+            len(review_responses),
+        )
+        logger.info("cycle complete")
+
         return {
             "source_sync": source_sync,
             "recovery": recovery,

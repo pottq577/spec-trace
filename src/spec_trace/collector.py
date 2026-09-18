@@ -62,32 +62,72 @@ class SourceCollector:
         self.content_store = content_store
         self.notion = notion
 
-    def collect(self, planning_document_id: str, trigger_type: str = "MANUAL") -> CollectionResult:
-        document = PlanningDocumentService(self.database, self.notion).get(planning_document_id)
-        run_id = self._start_run(planning_document_id, document.current_snapshot_id, trigger_type)
+    def collect(
+        self, planning_document_id: str, trigger_type: str = "MANUAL"
+    ) -> CollectionResult:
+        document = PlanningDocumentService(self.database, self.notion).get(
+            planning_document_id
+        )
+        run_id = self._start_run(
+            planning_document_id, document.current_snapshot_id, trigger_type
+        )
         try:
             excluded = self._system_page_ids(planning_document_id)
             first = self._capture_tree(document.root_notion_page_id, excluded)
             second = self._capture_tree(document.root_notion_page_id, excluded)
             if first.stability_signature() != second.stability_signature():
-                self._finish_run(run_id, "SOURCE_UNSTABLE", failure_code="SOURCE_UNSTABLE", retryable=True)
-                return CollectionResult("SOURCE_UNSTABLE", planning_document_id, document.current_snapshot_id, failure_code="SOURCE_UNSTABLE")
+                self._finish_run(
+                    run_id,
+                    "SOURCE_UNSTABLE",
+                    failure_code="SOURCE_UNSTABLE",
+                    retryable=True,
+                )
+                return CollectionResult(
+                    "SOURCE_UNSTABLE",
+                    planning_document_id,
+                    document.current_snapshot_id,
+                    failure_code="SOURCE_UNSTABLE",
+                )
             result = self._publish(planning_document_id, first, run_id)
             return result
         except ResourceNotFound:
             self._mark_unavailable(planning_document_id)
-            self._finish_run(run_id, "SOURCE_UNAVAILABLE", failure_code="SOURCE_UNAVAILABLE", retryable=False)
-            return CollectionResult("SOURCE_UNAVAILABLE", planning_document_id, document.current_snapshot_id, failure_code="SOURCE_UNAVAILABLE")
+            self._finish_run(
+                run_id,
+                "SOURCE_UNAVAILABLE",
+                failure_code="SOURCE_UNAVAILABLE",
+                retryable=False,
+            )
+            return CollectionResult(
+                "SOURCE_UNAVAILABLE",
+                planning_document_id,
+                document.current_snapshot_id,
+                failure_code="SOURCE_UNAVAILABLE",
+            )
         except ExternalServiceError:
-            self._finish_run(run_id, "COLLECTION_FAILED", failure_code="EXTERNAL_SERVICE", retryable=True)
-            return CollectionResult("COLLECTION_FAILED", planning_document_id, document.current_snapshot_id, failure_code="EXTERNAL_SERVICE")
+            self._finish_run(
+                run_id,
+                "COLLECTION_FAILED",
+                failure_code="EXTERNAL_SERVICE",
+                retryable=True,
+            )
+            return CollectionResult(
+                "COLLECTION_FAILED",
+                planning_document_id,
+                document.current_snapshot_id,
+                failure_code="EXTERNAL_SERVICE",
+            )
         except Exception:
-            self._finish_run(run_id, "COLLECTION_FAILED", failure_code="INTERNAL", retryable=False)
+            self._finish_run(
+                run_id, "COLLECTION_FAILED", failure_code="INTERNAL", retryable=False
+            )
             raise
 
     def _capture_tree(self, root_page_id: str, excluded: set[str]) -> CaptureTree:
         pages: dict[str, CapturedPage] = {}
-        self._capture_page(normalize_notion_id(root_page_id), None, "ROOT", excluded, pages)
+        self._capture_page(
+            normalize_notion_id(root_page_id), None, "ROOT", excluded, pages
+        )
         return CaptureTree(pages)
 
     def _capture_page(
@@ -133,16 +173,23 @@ class SourceCollector:
                 if child_id in excluded:
                     continue
                 captured.append(block)
-                self._capture_page(child_id, owning_page_id, "COMPOSED_CHILD", excluded, pages)
+                self._capture_page(
+                    child_id, owning_page_id, "COMPOSED_CHILD", excluded, pages
+                )
                 continue
             if block.get("has_children"):
                 block["_captured_children"] = self._capture_blocks(
-                    normalize_notion_id(str(block["id"])), owning_page_id, excluded, pages
+                    normalize_notion_id(str(block["id"])),
+                    owning_page_id,
+                    excluded,
+                    pages,
                 )
             captured.append(block)
         return captured
 
-    def _publish(self, planning_document_id: str, tree: CaptureTree, run_id: str) -> CollectionResult:
+    def _publish(
+        self, planning_document_id: str, tree: CaptureTree, run_id: str
+    ) -> CollectionResult:
         captured_at = utc_now()
         prepared: dict[str, dict[str, Any]] = {}
         aggregate_parts: list[dict[str, Any]] = []
@@ -150,7 +197,9 @@ class SourceCollector:
             canonical = canonical_page(page.title, page.blocks)
             content_hash = page_content_hash(canonical)
             _, content_ref = self.content_store.put_json(canonical)
-            _, raw_ref = self.content_store.put_json({"page": page.raw_page, "blocks": page.blocks})
+            _, raw_ref = self.content_store.put_json(
+                {"page": page.raw_page, "blocks": page.blocks}
+            )
             prepared[page.notion_page_id] = {
                 "page": page,
                 "content_hash": content_hash,
@@ -175,7 +224,9 @@ class SourceCollector:
                 (planning_document_id,),
             ).fetchone()
             if document is None:
-                raise ResourceNotFound(f"planning document not found: {planning_document_id}")
+                raise ResourceNotFound(
+                    f"planning document not found: {planning_document_id}"
+                )
             baseline_id = document["current_snapshot_id"]
             baseline = None
             if baseline_id:
@@ -222,7 +273,14 @@ class SourceCollector:
                             role, title, created_at
                         ) VALUES (?, ?, ?, ?, ?, ?)
                         """,
-                        (source_page_id, planning_document_id, page_id, page.role, page.title, captured_at),
+                        (
+                            source_page_id,
+                            planning_document_id,
+                            page_id,
+                            page.role,
+                            page.title,
+                            captured_at,
+                        ),
                     )
                 previous_snapshot = connection.execute(
                     """
@@ -238,7 +296,9 @@ class SourceCollector:
                     """,
                     (source_page_id, item["content_hash"]),
                 ).fetchone()
-                source_snapshot_id = snapshot["source_page_snapshot_id"] if snapshot else new_id()
+                source_snapshot_id = (
+                    snapshot["source_page_snapshot_id"] if snapshot else new_id()
+                )
                 if snapshot is None:
                     connection.execute(
                         """
@@ -250,7 +310,9 @@ class SourceCollector:
                         (
                             source_snapshot_id,
                             source_page_id,
-                            previous_snapshot["source_page_snapshot_id"] if previous_snapshot else None,
+                            previous_snapshot["source_page_snapshot_id"]
+                            if previous_snapshot
+                            else None,
                             item["content_hash"],
                             item["content_ref"],
                             item["raw_ref"],
@@ -262,7 +324,9 @@ class SourceCollector:
             for page_id in sorted(prepared):
                 page: CapturedPage = prepared[page_id]["page"]
                 source_page_id, _ = source_rows[page_id]
-                parent_source_page_id = source_rows.get(page.parent_notion_page_id, (None, None))[0]
+                parent_source_page_id = source_rows.get(
+                    page.parent_notion_page_id, (None, None)
+                )[0]
                 connection.execute(
                     """
                     UPDATE source_pages
@@ -280,7 +344,13 @@ class SourceCollector:
                     aggregate_hash, captured_at
                 ) VALUES (?, ?, ?, ?, ?)
                 """,
-                (snapshot_id, planning_document_id, baseline_id, aggregate_hash, captured_at),
+                (
+                    snapshot_id,
+                    planning_document_id,
+                    baseline_id,
+                    aggregate_hash,
+                    captured_at,
+                ),
             )
             for page_id in sorted(prepared):
                 item = prepared[page_id]
@@ -316,10 +386,15 @@ class SourceCollector:
                         ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
-                            new_id(), snapshot_id, source_snapshot_id,
+                            new_id(),
+                            snapshot_id,
+                            source_snapshot_id,
                             reference["target_notion_page_id"],
-                            target_document["planning_document_id"] if target_document else None,
-                            reference["reference_type"], reference["location_json"],
+                            target_document["planning_document_id"]
+                            if target_document
+                            else None,
+                            reference["reference_type"],
+                            reference["location_json"],
                         ),
                     )
             connection.execute(
@@ -334,7 +409,11 @@ class SourceCollector:
             change_set_id = None
             if baseline_id:
                 change_set_id = self._create_change_set(
-                    connection, planning_document_id, baseline_id, snapshot_id, captured_at
+                    connection,
+                    planning_document_id,
+                    baseline_id,
+                    snapshot_id,
+                    captured_at,
                 )
             connection.execute(
                 """
@@ -344,9 +423,18 @@ class SourceCollector:
                 """,
                 (snapshot_id, captured_at, run_id),
             )
-            return CollectionResult("SNAPSHOT_CREATED", planning_document_id, snapshot_id, change_set_id)
+            return CollectionResult(
+                "SNAPSHOT_CREATED", planning_document_id, snapshot_id, change_set_id
+            )
 
-    def _create_change_set(self, connection, planning_document_id: str, baseline_id: str, target_id: str, now: str) -> str:
+    def _create_change_set(
+        self,
+        connection,
+        planning_document_id: str,
+        baseline_id: str,
+        target_id: str,
+        now: str,
+    ) -> str:
         existing = connection.execute(
             """
             SELECT change_set_id FROM change_sets
@@ -394,7 +482,10 @@ class SourceCollector:
                     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
-                        new_id(), change_set_id, page_id, change_type,
+                        new_id(),
+                        change_set_id,
+                        page_id,
+                        change_type,
                         before["source_page_snapshot_id"] if before else None,
                         after["source_page_snapshot_id"] if after else None,
                         before["parent_notion_page_id"] if before else None,
@@ -413,7 +504,12 @@ class SourceCollector:
         ).fetchall()
         return {row["notion_page_id"]: row for row in rows}
 
-    def _start_run(self, planning_document_id: str, baseline_snapshot_id: str | None, trigger_type: str) -> str:
+    def _start_run(
+        self,
+        planning_document_id: str,
+        baseline_snapshot_id: str | None,
+        trigger_type: str,
+    ) -> str:
         run_id = new_id()
         try:
             with self.database.transaction() as connection:
@@ -424,15 +520,27 @@ class SourceCollector:
                         status, baseline_snapshot_id, started_at
                     ) VALUES (?, ?, ?, 'RUNNING', ?, ?)
                     """,
-                    (run_id, planning_document_id, trigger_type, baseline_snapshot_id, utc_now()),
+                    (
+                        run_id,
+                        planning_document_id,
+                        trigger_type,
+                        baseline_snapshot_id,
+                        utc_now(),
+                    ),
                 )
         except Exception as exc:
-            if "one_active_collection_per_document" in str(exc) or "UNIQUE constraint failed" in str(exc):
-                raise StateConflict(f"collection already active: {planning_document_id}") from exc
+            if "one_active_collection_per_document" in str(
+                exc
+            ) or "UNIQUE constraint failed" in str(exc):
+                raise StateConflict(
+                    f"collection already active: {planning_document_id}"
+                ) from exc
             raise
         return run_id
 
-    def _finish_run(self, run_id: str, status: str, *, failure_code: str, retryable: bool) -> None:
+    def _finish_run(
+        self, run_id: str, status: str, *, failure_code: str, retryable: bool
+    ) -> None:
         with self.database.transaction() as connection:
             connection.execute(
                 """
