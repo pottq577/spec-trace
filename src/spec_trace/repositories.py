@@ -34,8 +34,7 @@ class RepositoryService:
             result = subprocess.run(
                 ["git", "-C", str(path), *args],
                 check=True,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 text=True,
             )
         except (OSError, subprocess.CalledProcessError) as exc:

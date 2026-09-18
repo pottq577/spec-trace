@@ -523,12 +523,11 @@ def _markdown_to_blocks(content: str) -> list[dict[str, Any]]:
 def _is_special(line: str, lines: list[str], index: int) -> bool:
     stripped = line.strip()
     return bool(
-        stripped.startswith("```")
+        stripped.startswith(("```", ">"))
         or _HEADING_RE.match(line)
         or _TODO_RE.match(line)
         or _BULLET_RE.match(line)
         or _NUMBERED_RE.match(line)
-        or stripped.startswith(">")
         or stripped in {"---", "***", "___"}
         or (
             stripped.startswith("|")

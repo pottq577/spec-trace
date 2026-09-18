@@ -513,7 +513,7 @@ class WebApplication:
         try:
             result = self.run_cycle()
         except SpecTraceError as exc:
-            logger.exception("cycle job failed: %s", exc)
+            logger.exception("cycle job failed")
             with self._cycle_guard:
                 self._cycle_job = {
                     "status": "FAILED",
