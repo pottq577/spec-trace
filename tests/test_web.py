@@ -143,6 +143,42 @@ class WebApplicationTest(unittest.TestCase):
         self.assertEqual(status["result"]["source_sync"]["active_pages"], 2)
         self.assertEqual(len(calls), 1)
 
+    def test_cycle_status_exposes_live_progress(self) -> None:
+        started = threading.Event()
+        release = threading.Event()
+
+        def cycle_runner() -> dict[str, object]:
+            started.set()
+            release.wait(2.0)
+            return {
+                "source_sync": {"status": "COMPLETED", "active_pages": 1},
+                "recovery": [],
+                "collections": [],
+                "answers": [],
+                "review_responses": [],
+            }
+
+        app = WebApplication(self.workspace, cycle_runner=cycle_runner)
+        app.start_cycle()
+        self.assertTrue(started.wait(1.0))
+        app._update_cycle_progress(
+            {
+                "phase": "collect_all",
+                "phase_label": "Notion 문서 확인/수집",
+                "current": 37,
+                "processed": 36,
+                "total": 172,
+                "title": "근무유형별 근무기준등록",
+            }
+        )
+
+        status = app.cycle_status()
+        self.assertEqual(status["progress"]["processed"], 36)
+        self.assertEqual(status["progress"]["total"], 172)
+        self.assertEqual(status["progress"]["title"], "근무유형별 근무기준등록")
+        self.assertIsNotNone(status["started_at"])
+        release.set()
+
     def test_cycle_failure_is_exposed_as_job_status(self) -> None:
         def cycle_runner() -> dict[str, object]:
             raise RuntimeError("boom")

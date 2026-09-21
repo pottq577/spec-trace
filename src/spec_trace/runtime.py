@@ -185,11 +185,20 @@ class RuntimeService:
         notion: NotionPort,
         *,
         sleeper: Callable[[float], None] = time.sleep,
+        progress_callback: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.workspace = workspace
         self.database = workspace.database
         self.notion = notion
         self.sleeper = sleeper
+        self.progress_callback = progress_callback
+        self._progress_state: dict[str, Any] = {}
+
+    def _emit_progress(self, **progress: Any) -> None:
+        if self.progress_callback is None:
+            return
+        self._progress_state.update(progress)
+        self.progress_callback(dict(self._progress_state))
 
     @staticmethod
     def recover_interrupted_collections(
@@ -227,14 +236,19 @@ class RuntimeService:
             )
         return [dict(row) for row in rows]
 
-    def collect_document(self, planning_document_id: str) -> dict[str, Any]:
+    def collect_document(
+        self, planning_document_id: str, *, title: str | None = None
+    ) -> dict[str, Any]:
         collector = SourceCollector(
             self.database, self.workspace.content_store, self.notion
         )
+        title = title or self._document_title(planning_document_id)
+        started = time.monotonic()
         attempts = 1
         logger.info(
-            "collection start document=%s attempt=%d",
+            "collection start document=%s title=%r attempt=%d",
             planning_document_id,
+            title,
             attempts,
         )
         result = collector.collect(planning_document_id)
@@ -242,28 +256,48 @@ class RuntimeService:
             if result.status != "SOURCE_UNSTABLE":
                 break
             logger.warning(
-                "collection retry document=%s attempt=%d delay=%.1fs",
+                "collection retry document=%s title=%r attempt=%d delay=%.1fs",
                 planning_document_id,
+                title,
                 attempts + 1,
                 delay,
             )
             self.sleeper(delay)
             attempts += 1
             result = collector.collect(planning_document_id)
+        duration_seconds = time.monotonic() - started
         logger.info(
-            "collection complete document=%s status=%s attempts=%d",
+            "collection complete document=%s title=%r status=%s attempts=%d duration=%.2fs",
             planning_document_id,
+            title,
             result.status,
             attempts,
+            duration_seconds,
         )
-        return {**result.__dict__, "attempts": attempts}
+        return {
+            **result.__dict__,
+            "attempts": attempts,
+            "title": title,
+            "duration_seconds": round(duration_seconds, 3),
+        }
+
+    def _document_title(self, planning_document_id: str) -> str:
+        connection = self.database.connect()
+        try:
+            row = connection.execute(
+                "SELECT title FROM planning_documents WHERE planning_document_id = ?",
+                (planning_document_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        return str(row["title"]) if row else planning_document_id
 
     def collect_all(self, *, incremental: bool = False) -> list[dict[str, Any]]:
         connection = self.database.connect()
         try:
             rows = connection.execute(
                 """
-                SELECT planning_document_id, root_notion_page_id,
+                SELECT planning_document_id, root_notion_page_id, title,
                        current_snapshot_id, source_last_edited_time
                 FROM planning_documents
                 WHERE source_status = 'AVAILABLE'
@@ -274,40 +308,119 @@ class RuntimeService:
             connection.close()
 
         total = len(rows)
+        batch_started = time.monotonic()
+        skipped = 0
+        collected = 0
+        failed = 0
         logger.info(
             "collection batch start total=%d mode=%s",
             total,
             "incremental" if incremental else "full",
         )
+        self._emit_progress(
+            phase="collect_all",
+            phase_label="Notion 문서 확인/수집",
+            state="RUNNING",
+            current=0,
+            processed=0,
+            total=total,
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+            skipped=0,
+            collected=0,
+            failed=0,
+            elapsed_seconds=0.0,
+        )
         results: list[dict[str, Any]] = []
         for index, row in enumerate(rows, start=1):
             document_id = row["planning_document_id"]
+            title = str(row["title"])
+            item_started = time.monotonic()
+            item_started_at = utc_now()
             logger.info(
-                "collection batch progress current=%d total=%d document=%s",
+                "collection batch progress current=%d total=%d document=%s title=%r",
                 index,
                 total,
                 document_id,
+                title,
+            )
+            self._emit_progress(
+                current=index,
+                processed=index - 1,
+                title=title,
+                item_status="CHECKING",
+                item_started_at=item_started_at,
+                duration_seconds=None,
+                elapsed_seconds=round(time.monotonic() - batch_started, 3),
             )
             if incremental and self._snapshot_matches_source(row):
+                duration_seconds = round(time.monotonic() - item_started, 3)
+                skipped += 1
                 logger.info(
-                    "collection skipped unchanged document=%s snapshot=%s",
+                    "collection skipped unchanged document=%s title=%r snapshot=%s duration=%.2fs",
                     document_id,
+                    title,
                     row["current_snapshot_id"],
+                    duration_seconds,
                 )
-                results.append(
-                    {
-                        "status": "SKIPPED_UNCHANGED",
-                        "planning_document_id": document_id,
-                        "snapshot_id": row["current_snapshot_id"],
-                        "change_set_id": None,
-                        "failure_code": None,
-                        "failure_detail": None,
-                        "attempts": 0,
-                    }
+                item = {
+                    "status": "SKIPPED_UNCHANGED",
+                    "planning_document_id": document_id,
+                    "snapshot_id": row["current_snapshot_id"],
+                    "change_set_id": None,
+                    "failure_code": None,
+                    "failure_detail": None,
+                    "attempts": 0,
+                    "title": title,
+                    "duration_seconds": duration_seconds,
+                }
+                results.append(item)
+                self._emit_progress(
+                    processed=index,
+                    item_status=item["status"],
+                    duration_seconds=duration_seconds,
+                    skipped=skipped,
+                    collected=collected,
+                    failed=failed,
+                    elapsed_seconds=round(time.monotonic() - batch_started, 3),
                 )
                 continue
-            results.append(self.collect_document(document_id))
+            self._emit_progress(item_status="COLLECTING")
+            item = self.collect_document(document_id, title=title)
+            results.append(item)
+            if item["status"] in {
+                "SOURCE_UNAVAILABLE",
+                "SOURCE_UNSTABLE",
+                "COLLECTION_FAILED",
+            }:
+                failed += 1
+            else:
+                collected += 1
+            self._emit_progress(
+                processed=index,
+                item_status=item["status"],
+                duration_seconds=item["duration_seconds"],
+                skipped=skipped,
+                collected=collected,
+                failed=failed,
+                elapsed_seconds=round(time.monotonic() - batch_started, 3),
+            )
         logger.info("collection batch complete total=%d", total)
+        self._emit_progress(
+            state="COMPLETED",
+            current=total,
+            processed=total,
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+            skipped=skipped,
+            collected=collected,
+            failed=failed,
+            elapsed_seconds=round(time.monotonic() - batch_started, 3),
+        )
         return results
 
     def _snapshot_matches_source(self, document) -> bool:
@@ -516,6 +629,15 @@ class RuntimeService:
         )
 
     def run_cycle(self) -> dict[str, Any]:
+        self._emit_progress(
+            phase="source_sync",
+            phase_label="Notion 메뉴 동기화",
+            state="RUNNING",
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+        )
         logger.info("cycle phase=source_sync start")
         source_sync = self.sync_source()
         logger.info(
@@ -524,6 +646,15 @@ class RuntimeService:
             source_sync.get("active_pages", 0),
         )
 
+        self._emit_progress(
+            phase="recovery",
+            phase_label="실패한 projection 복구",
+            state="RUNNING",
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+        )
         logger.info("cycle phase=recovery start")
         recovery = self.reconcile_pending()
         logger.info("cycle phase=recovery complete operations=%d", len(recovery))
@@ -539,6 +670,15 @@ class RuntimeService:
             len(collections),
         )
 
+        self._emit_progress(
+            phase="collect_answers",
+            phase_label="구조화 답변 확인",
+            state="RUNNING",
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+        )
         logger.info("cycle phase=collect_answers start")
         answers = self.collect_answers()
         logger.info(
@@ -547,6 +687,15 @@ class RuntimeService:
             sum(item.get("answers_collected", 0) for item in answers),
         )
 
+        self._emit_progress(
+            phase="review_responses",
+            phase_label="검토 문서 답변 확인",
+            state="RUNNING",
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+        )
         logger.info("cycle phase=review_responses start")
         review_responses = ReviewDocumentService(
             self.workspace, self.notion
@@ -556,6 +705,15 @@ class RuntimeService:
             len(review_responses),
         )
         logger.info("cycle complete")
+        self._emit_progress(
+            phase="completed",
+            phase_label="전체 최신화 완료",
+            state="COMPLETED",
+            title=None,
+            item_status=None,
+            item_started_at=None,
+            duration_seconds=None,
+        )
 
         return {
             "source_sync": source_sync,

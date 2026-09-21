@@ -18,6 +18,7 @@ from .notion import NotionCliClient, NotionPort
 from .review_documents import ReviewDocumentService
 from .runtime import RuntimeService
 from .source_export import SourceExportService
+from .util import utc_now
 from .workspace import Workspace, WorkspaceLock
 
 logger = logging.getLogger(__name__)
@@ -57,6 +58,12 @@ dialog::backdrop { background: rgba(17,24,39,.42); }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
 .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; }
 .status { min-height: 22px; margin-top: 12px; color: #475467; font-size: 13px; white-space: pre-wrap; }
+.cycle-progress { margin-top: 14px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; }
+.progress-head { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+.progress-track { height: 8px; margin-top: 9px; overflow: hidden; border-radius: 999px; background: #e5e7eb; }
+.progress-bar { height: 100%; width: 0; border-radius: inherit; background: #17191c; transition: width .25s ease; }
+.progress-current { margin-top: 9px; font-size: 13px; font-weight: 600; word-break: break-word; }
+.progress-stats { margin-top: 5px; color: #667085; font-size: 12px; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
 .toolbar input { flex: 1; }
 ul.tree { list-style: none; padding-left: 0; margin: 0; }
@@ -85,6 +92,15 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
       <h2>전체 최신화</h2>
       <p>메뉴 동기화 → 실패한 projection 복구 → AVAILABLE 문서 수집 → 기획자 답변 회수 순서로 실행합니다.</p>
       <div class="actions"><button id="cycle">전체 최신화</button></div>
+      <div id="cycleProgress" class="cycle-progress" hidden>
+        <div class="progress-head">
+          <strong id="cyclePhase"></strong>
+          <span id="cycleCount"></span>
+        </div>
+        <div class="progress-track"><div id="cycleBar" class="progress-bar"></div></div>
+        <div id="cycleCurrent" class="progress-current"></div>
+        <div id="cycleStats" class="progress-stats"></div>
+      </div>
       <div id="cycleStatus" class="status"></div>
     </section>
     <section class="card">
@@ -180,10 +196,77 @@ function renderCycleResult(result) {
   $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 확인 ${collections.length}개 · 변경 없음 ${skipped.length}개 · 수집 성공 ${collected}개 · 실패 ${failures.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건${failureDetail}`;
 }
 
+function formatDuration(seconds) {
+  const total = Math.max(0, Math.round(Number(seconds) || 0));
+  if (total < 60) return `${total}초`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest ? `${minutes}분 ${rest}초` : `${minutes}분`;
+}
+
+function liveDuration(startedAt, fallback=0) {
+  if (!startedAt) return fallback;
+  const started = Date.parse(startedAt);
+  if (!Number.isFinite(started)) return fallback;
+  return Math.max(0, (Date.now() - started) / 1000);
+}
+
+function renderCycleProgress(job) {
+  const progress = job.progress || {};
+  const panel = $('cycleProgress');
+  if (!progress.phase) {
+    panel.hidden = true;
+    return;
+  }
+  panel.hidden = false;
+  $('cyclePhase').textContent = progress.phase_label || progress.phase;
+
+  const total = Number(progress.total || 0);
+  const processed = Number(progress.processed || 0);
+  if (total > 0) {
+    const percent = Math.min(100, Math.max(0, processed / total * 100));
+    $('cycleCount').textContent = `${processed} / ${total} (${percent.toFixed(1)}%)`;
+    $('cycleBar').style.width = `${percent}%`;
+  } else {
+    $('cycleCount').textContent = '';
+    $('cycleBar').style.width = '0%';
+  }
+
+  const labels = {
+    CHECKING: '변경 확인 중',
+    COLLECTING: '원문 수집 중',
+    SKIPPED_UNCHANGED: '변경 없음',
+    SNAPSHOT_CREATED: '수집 완료',
+    UNCHANGED: '수집 완료 · 내용 동일',
+    SOURCE_UNAVAILABLE: '원문 없음',
+    SOURCE_UNSTABLE: '수집 불안정',
+    COLLECTION_FAILED: '수집 실패',
+  };
+  let itemDuration = progress.duration_seconds;
+  if (['CHECKING', 'COLLECTING'].includes(progress.item_status)) {
+    itemDuration = liveDuration(progress.item_started_at, itemDuration || 0);
+  }
+  const currentParts = [];
+  if (progress.title) {
+    currentParts.push(`현재 ${progress.current ?? '-'} / ${progress.total ?? '-'} · ${progress.title}`);
+  }
+  if (progress.item_status) currentParts.push(labels[progress.item_status] || progress.item_status);
+  if (itemDuration != null && progress.item_status) currentParts.push(formatDuration(itemDuration));
+  $('cycleCurrent').textContent = currentParts.join(' · ');
+
+  const elapsed = liveDuration(job.started_at, progress.elapsed_seconds || 0);
+  if (total > 0) {
+    $('cycleStats').textContent = `변경 없음 ${progress.skipped || 0}개 · 수집 ${progress.collected || 0}개 · 실패 ${progress.failed || 0}개 · 경과 ${formatDuration(elapsed)}`;
+  } else {
+    $('cycleStats').textContent = `경과 ${formatDuration(elapsed)}`;
+  }
+}
+
 async function restoreCycleState() {
   const job = await api('/api/cycle');
   if (job.status === 'RUNNING') {
     $('cycle').disabled = true;
+    renderCycleProgress(job);
     $('cycleStatus').textContent = '실행 중… 새로고침해도 서버에서 계속 진행됩니다.';
     if (!cyclePolling) void monitorCycle(job);
     return;
@@ -195,6 +278,7 @@ async function restoreCycleState() {
   }
   if (job.status === 'COMPLETED') {
     $('cycle').disabled = false;
+    renderCycleProgress(job);
     renderCycleResult(job.result || {});
   }
 }
@@ -206,6 +290,7 @@ async function monitorCycle(initialJob) {
   try {
     let job = initialJob;
     while (job.status === 'RUNNING') {
+      renderCycleProgress(job);
       $('cycleStatus').textContent = '실행 중… 새로고침해도 서버에서 계속 진행됩니다.';
       await new Promise((resolve) => setTimeout(resolve, 1000));
       job = await api('/api/cycle');
@@ -214,6 +299,7 @@ async function monitorCycle(initialJob) {
       throw new Error(job.error || '전체 최신화에 실패했습니다.');
     }
     if (job.status === 'COMPLETED') {
+      renderCycleProgress(job);
       renderCycleResult(job.result || {});
       await load();
     }
@@ -404,6 +490,9 @@ class WebApplication:
             "status": "IDLE",
             "result": None,
             "error": None,
+            "started_at": None,
+            "finished_at": None,
+            "progress": None,
         }
 
     def state(self) -> dict[str, Any]:
@@ -501,7 +590,18 @@ class WebApplication:
         with self._cycle_guard:
             if self._cycle_job["status"] == "RUNNING":
                 return dict(self._cycle_job)
-            self._cycle_job = {"status": "RUNNING", "result": None, "error": None}
+            self._cycle_job = {
+                "status": "RUNNING",
+                "result": None,
+                "error": None,
+                "started_at": utc_now(),
+                "finished_at": None,
+                "progress": {
+                    "phase": "starting",
+                    "phase_label": "전체 최신화 시작",
+                    "state": "RUNNING",
+                },
+            }
             thread = threading.Thread(
                 target=self._run_cycle_job,
                 name="spec-trace-cycle",
@@ -512,7 +612,16 @@ class WebApplication:
 
     def cycle_status(self) -> dict[str, Any]:
         with self._cycle_guard:
-            return dict(self._cycle_job)
+            payload = dict(self._cycle_job)
+            if isinstance(payload.get("progress"), dict):
+                payload["progress"] = dict(payload["progress"])
+            return payload
+
+    def _update_cycle_progress(self, progress: dict[str, Any]) -> None:
+        with self._cycle_guard:
+            if self._cycle_job["status"] != "RUNNING":
+                return
+            self._cycle_job["progress"] = dict(progress)
 
     def _run_cycle_job(self) -> None:
         logger.info("cycle job started")
@@ -525,6 +634,9 @@ class WebApplication:
                     "status": "FAILED",
                     "result": None,
                     "error": str(exc),
+                    "started_at": self._cycle_job.get("started_at"),
+                    "finished_at": utc_now(),
+                    "progress": self._cycle_job.get("progress"),
                 }
         except Exception as exc:
             logger.exception("cycle job failed with unexpected error")
@@ -533,6 +645,9 @@ class WebApplication:
                     "status": "FAILED",
                     "result": None,
                     "error": f"internal error: {type(exc).__name__}",
+                    "started_at": self._cycle_job.get("started_at"),
+                    "finished_at": utc_now(),
+                    "progress": self._cycle_job.get("progress"),
                 }
         else:
             logger.info("cycle job completed")
@@ -541,6 +656,9 @@ class WebApplication:
                     "status": "COMPLETED",
                     "result": result,
                     "error": None,
+                    "started_at": self._cycle_job.get("started_at"),
+                    "finished_at": utc_now(),
+                    "progress": self._cycle_job.get("progress"),
                 }
 
     def run_cycle(self) -> dict[str, Any]:
@@ -548,7 +666,11 @@ class WebApplication:
             return self.cycle_runner()
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
-            return RuntimeService(self.workspace, notion).run_cycle()
+            return RuntimeService(
+                self.workspace,
+                notion,
+                progress_callback=self._update_cycle_progress,
+            ).run_cycle()
 
     def export_document(self, planning_document_id: str) -> dict[str, Any]:
         document_id = str(planning_document_id or "").strip()

@@ -121,6 +121,27 @@ class RuntimeServiceTest(unittest.TestCase):
         self.assertEqual(result[0]["attempts"], 0)
         self.assertEqual(self.fake.root_retrieve_count, 0)
 
+    def test_collect_all_reports_title_duration_and_progress(self) -> None:
+        events: list[dict[str, object]] = []
+        result = RuntimeService(
+            self.workspace,
+            self.fake,
+            sleeper=lambda _: None,
+            progress_callback=events.append,
+        ).collect_all()
+
+        self.assertEqual(result[0]["title"], "근무유형별근무기준등록")
+        self.assertGreaterEqual(result[0]["duration_seconds"], 0)
+        collection_events = [
+            event for event in events if event.get("phase") == "collect_all"
+        ]
+        self.assertGreaterEqual(len(collection_events), 3)
+        completed = collection_events[-1]
+        self.assertEqual(completed["processed"], 1)
+        self.assertEqual(completed["total"], 1)
+        self.assertEqual(completed["collected"], 1)
+        self.assertEqual(completed["failed"], 0)
+
     def test_incremental_collection_bootstraps_freshness_from_snapshot(self) -> None:
         service = RuntimeService(
             self.workspace, self.fake, sleeper=lambda _: None
