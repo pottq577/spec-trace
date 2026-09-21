@@ -17,7 +17,7 @@ spec-trace-web = "spec_trace.web:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-spec_trace = ["migrations/*.sql"]
+spec_trace = ["migrations/*.sql", "web_assets/*"]
 
 [dependency-groups]
 dev = [
