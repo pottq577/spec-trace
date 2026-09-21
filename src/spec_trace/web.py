@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import difflib
 import json
 import logging
 import threading
@@ -64,14 +65,18 @@ dialog::backdrop { background: rgba(17,24,39,.42); }
 .progress-bar { height: 100%; width: 0; border-radius: inherit; background: #17191c; transition: width .25s ease; }
 .progress-current { margin-top: 9px; font-size: 13px; font-weight: 600; word-break: break-word; }
 .progress-stats { margin-top: 5px; color: #667085; font-size: 12px; }
-.toolbar { display: flex; gap: 10px; margin-bottom: 12px; }
-.toolbar input { flex: 1; }
+.toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
+.toolbar input { flex: 1 1 260px; }
 ul.tree { list-style: none; padding-left: 0; margin: 0; }
 ul.tree ul { list-style: none; padding-left: 22px; margin: 5px 0; }
 .node { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 7px 8px; border-radius: 8px; }
 .node-copy { min-width: 0; }
 .node-main { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .node-meta { margin-top: 3px; color: #667085; font-size: 12px; }
+.tree-toggle { width: 24px; height: 24px; flex: 0 0 24px; padding: 0; border-radius: 6px; background: transparent; color: #667085; }
+.tree-toggle:hover { background: #eef0f3; color: #17191c; }
+.tree-toggle-placeholder { width: 24px; flex: 0 0 24px; }
+.tree-children[hidden] { display: none; }
 button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
 .node-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .review-row { display: flex; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #eef0f3; }
@@ -84,8 +89,22 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
 .change-set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .change-set-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .change-list { margin-top: 10px; border-top: 1px solid #e5e7eb; }
-.change-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #eef0f3; }
+.change-row { border-bottom: 1px solid #eef0f3; }
 .change-row:last-child { border-bottom: 0; }
+.change-row summary { display: flex; align-items: center; gap: 10px; padding: 9px 0; cursor: pointer; list-style: none; }
+.change-row summary::-webkit-details-marker { display: none; }
+.change-row summary::before { content: '▸'; width: 14px; flex: 0 0 14px; color: #667085; }
+.change-row[open] summary::before { content: '▾'; }
+.change-row-copy { min-width: 0; flex: 1; }
+.change-row-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.change-detail { padding: 0 0 12px 24px; }
+.change-structure { margin: 0 0 8px; color: #475467; font-size: 12px; word-break: break-all; }
+.diff { margin: 0; border: 1px solid #d0d5dd; border-radius: 8px; overflow: auto; background: #fff; font: 12px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.diff-line { display: block; min-height: 1.55em; padding: 0 10px; white-space: pre; }
+.diff-line.added { background: #ecfdf3; color: #027a48; }
+.diff-line.removed { background: #fff1f1; color: #b42318; }
+.diff-line.hunk { background: #eef4ff; color: #3538cd; }
+.diff-empty { color: #667085; font-size: 12px; }
 .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #667085; word-break: break-all; }
 .full { grid-column: 1 / -1; }
 @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
@@ -140,7 +159,12 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
     </section>
     <section class="card full">
       <h2>Notion 문서</h2>
-      <div class="toolbar"><input id="search" placeholder="문서 제목 검색"><button class="secondary" id="refresh">새로고침</button></div>
+      <div class="toolbar">
+        <input id="search" placeholder="문서 제목 검색">
+        <button class="secondary" id="collapseAll" type="button">모두 접기</button>
+        <button class="secondary" id="expandAll" type="button">모두 펼치기</button>
+        <button class="secondary" id="refresh">새로고침</button>
+      </div>
       <div id="tree"></div>
       <div id="documentStatus" class="status"></div>
     </section>
@@ -179,6 +203,7 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
 <script>
 let state = null;
 let folderState = null;
+const collapsedDocumentIds = new Set();
 let cyclePolling = false;
 const $ = (id) => document.getElementById(id);
 async function api(path, options={}) {
@@ -403,7 +428,7 @@ function analysisStatusLabel(value) {
     FAILED: '분석 실패',
   })[value] || value;
 }
-function nodeHtml(node) {
+function nodeHtml(node, searching=false) {
   const badge = node.source_status === 'AVAILABLE'
     ? '<span class="badge">AVAILABLE</span>'
     : '<span class="badge off">UNAVAILABLE</span>';
@@ -414,11 +439,34 @@ function nodeHtml(node) {
   const action = node.source_status === 'AVAILABLE'
     ? `<div class="node-actions"><button class="secondary mini" onclick="openChanges('${node.planning_document_id}')">변경사항</button><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">로컬에 저장</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">개발 검토</button></div>`
     : '';
-  const children = (node.children || []).map(nodeHtml).join('');
-  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-copy"><div class="node-main"><span>${escapeHtml(node.title)}</span>${badge}</div>${changeMeta}</div>${action}</div>${children ? `<ul>${children}</ul>` : ''}</li>`;
+  const childNodes = node.children || [];
+  const hasChildren = childNodes.length > 0;
+  const collapsed = hasChildren && !searching && collapsedDocumentIds.has(node.planning_document_id);
+  const toggle = hasChildren
+    ? `<button type="button" class="tree-toggle" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? '펼치기' : '접기'}: ${escapeHtml(node.title)}" onclick="toggleTreeNode('${node.planning_document_id}')">${collapsed ? '▸' : '▾'}</button>`
+    : '<span class="tree-toggle-placeholder" aria-hidden="true"></span>';
+  const children = childNodes.map((child) => nodeHtml(child, searching)).join('');
+  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-copy"><div class="node-main">${toggle}<span>${escapeHtml(node.title)}</span>${badge}</div>${changeMeta}</div>${action}</div>${children ? `<ul class="tree-children"${collapsed ? ' hidden' : ''}>${children}</ul>` : ''}</li>`;
 }
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+}
+function toggleTreeNode(id) {
+  if (collapsedDocumentIds.has(id)) collapsedDocumentIds.delete(id);
+  else collapsedDocumentIds.add(id);
+  renderTree();
+}
+window.toggleTreeNode = toggleTreeNode;
+function setAllTreeCollapsed(collapsed) {
+  const visit = (node) => {
+    if ((node.children || []).length) {
+      if (collapsed) collapsedDocumentIds.add(node.planning_document_id);
+      else collapsedDocumentIds.delete(node.planning_document_id);
+      (node.children || []).forEach(visit);
+    }
+  };
+  (state.documents || []).forEach(visit);
+  renderTree();
 }
 function renderTree() {
   const q = $('search').value.trim().toLowerCase();
@@ -428,7 +476,9 @@ function renderTree() {
     return null;
   };
   const nodes = (state.documents || []).map(filter).filter(Boolean);
-  $('tree').innerHTML = nodes.length ? `<ul class="tree">${nodes.map(nodeHtml).join('')}</ul>` : '<div class="status">표시할 문서가 없습니다.</div>';
+  $('tree').innerHTML = nodes.length
+    ? `<ul class="tree">${nodes.map((node) => nodeHtml(node, Boolean(q))).join('')}</ul>`
+    : '<div class="status">표시할 문서가 없습니다.</div>';
 }
 async function exportDocument(id) {
   $('documentStatus').textContent = '선택한 문서를 최신 수집하고 Markdown으로 저장하는 중…';
@@ -439,6 +489,43 @@ async function exportDocument(id) {
   } catch (e) { $('documentStatus').textContent = e.message; }
 }
 window.exportDocument = exportDocument;
+function changeStructureHtml(change) {
+  if (change.change_type === 'PARENT_CHANGED') {
+    return `<div class="change-structure">상위 페이지: ${escapeHtml(change.baseline_parent_notion_page_id || '없음')} → ${escapeHtml(change.target_parent_notion_page_id || '없음')}</div>`;
+  }
+  if (change.change_type === 'ROLE_CHANGED') {
+    return `<div class="change-structure">역할: ${escapeHtml(change.baseline_role || '없음')} → ${escapeHtml(change.target_role || '없음')}</div>`;
+  }
+  if (change.change_type === 'PAGE_ADDED') {
+    return '<div class="change-structure">새 페이지가 Snapshot에 추가되었습니다.</div>';
+  }
+  if (change.change_type === 'PAGE_REMOVED') {
+    return '<div class="change-structure">페이지가 Snapshot에서 제거되었습니다.</div>';
+  }
+  return '';
+}
+function changeDiffHtml(change) {
+  const lines = change.content_diff || [];
+  if (!lines.length) return '<div class="diff-empty">표시할 본문 diff가 없습니다.</div>';
+  const rendered = lines.map((line) => {
+    let klass = 'diff-line';
+    if (line.startsWith('@@')) klass += ' hunk';
+    else if (line.startsWith('+')) klass += ' added';
+    else if (line.startsWith('-')) klass += ' removed';
+    return `<span class="${klass}">${escapeHtml(line)}</span>`;
+  }).join('');
+  const truncated = change.content_diff_truncated
+    ? '<div class="change-structure">diff가 길어 일부 줄만 표시합니다.</div>'
+    : '';
+  return `${truncated}<pre class="diff">${rendered}</pre>`;
+}
+function changeRowHtml(change) {
+  const diffAvailable = (change.content_diff || []).length > 0;
+  const counts = diffAvailable
+    ? `<span class="badge">+${Number(change.added_lines || 0)} / -${Number(change.deleted_lines || 0)}</span>`
+    : '';
+  return `<details class="change-row"${diffAvailable ? ' open' : ''}><summary><div class="change-row-copy"><strong>${escapeHtml(change.page_title || change.notion_page_id)}</strong><div class="node-meta">${escapeHtml(change.notion_page_id)}</div></div><div class="change-row-badges"><span class="badge">${escapeHtml(changeTypeLabel(change.change_type))}</span>${counts}</div></summary><div class="change-detail">${changeStructureHtml(change)}${changeDiffHtml(change)}</div></details>`;
+}
 async function openChanges(id) {
   $('reviewPanel').style.display = 'none';
   $('changesPanel').style.display = 'block';
@@ -459,7 +546,7 @@ async function openChanges(id) {
     $('changesList').innerHTML = changeSets.map((changeSet) => {
       const changes = changeSet.physical_changes || [];
       const rows = changes.length
-        ? changes.map((change) => `<div class="change-row"><div><strong>${escapeHtml(change.page_title || change.notion_page_id)}</strong><div class="node-meta">${escapeHtml(change.notion_page_id)}</div></div><span class="badge">${escapeHtml(changeTypeLabel(change.change_type))}</span></div>`).join('')
+        ? changes.map(changeRowHtml).join('')
         : '<div class="status">기록된 물리 변경이 없습니다.</div>';
       return `<div class="change-set"><div class="change-set-head"><div><strong>${escapeHtml(formatTimestamp(changeSet.target_captured_at || changeSet.created_at))}</strong><div class="node-meta">${escapeHtml(formatTimestamp(changeSet.baseline_captured_at))} → ${escapeHtml(formatTimestamp(changeSet.target_captured_at))}</div></div><div class="change-set-badges"><span class="badge">${Number(changeSet.change_count || 0)}건</span><span class="badge">${escapeHtml(analysisStatusLabel(changeSet.analysis_status))}</span></div></div><div class="change-list">${rows}</div></div>`;
     }).join('');
@@ -524,6 +611,8 @@ $('selectFolder').addEventListener('click', () => {
   $('exportStatus').textContent = '폴더를 선택했습니다. 저장 위치 적용 또는 전체 저장을 눌러 반영하세요.';
 });
 $('search').addEventListener('input', renderTree);
+$('collapseAll').addEventListener('click', () => setAllTreeCollapsed(true));
+$('expandAll').addEventListener('click', () => setAllTreeCollapsed(false));
 $('refresh').addEventListener('click', load);
 async function applyExportRoot() {
   const exportRoot = $('exportRoot').value.trim();
@@ -934,12 +1023,30 @@ class WebApplication:
             ).fetchall()
             physical_changes = connection.execute(
                 """
-                SELECT pc.*, COALESCE(sp.title, pc.notion_page_id) AS page_title
+                SELECT pc.*, COALESCE(sp.title, pc.notion_page_id) AS page_title,
+                       baseline_source.content_ref AS baseline_content_ref,
+                       target_source.content_ref AS target_content_ref,
+                       baseline_page.role AS baseline_role,
+                       target_page.role AS target_role
                 FROM physical_changes pc
                 JOIN change_sets cs ON cs.change_set_id = pc.change_set_id
                 LEFT JOIN source_pages sp
                   ON sp.planning_document_id = cs.planning_document_id
                  AND sp.notion_page_id = pc.notion_page_id
+                LEFT JOIN source_page_snapshots baseline_source
+                  ON baseline_source.source_page_snapshot_id =
+                     pc.baseline_source_page_snapshot_id
+                LEFT JOIN source_page_snapshots target_source
+                  ON target_source.source_page_snapshot_id =
+                     pc.target_source_page_snapshot_id
+                LEFT JOIN planning_snapshot_pages baseline_page
+                  ON baseline_page.planning_document_snapshot_id =
+                     cs.baseline_snapshot_id
+                 AND baseline_page.notion_page_id = pc.notion_page_id
+                LEFT JOIN planning_snapshot_pages target_page
+                  ON target_page.planning_document_snapshot_id =
+                     cs.target_snapshot_id
+                 AND target_page.notion_page_id = pc.notion_page_id
                 WHERE cs.planning_document_id = ?
                 ORDER BY cs.created_at DESC, cs.change_set_id DESC,
                          page_title, pc.notion_page_id, pc.change_type
@@ -950,9 +1057,49 @@ class WebApplication:
             connection.close()
 
         by_change_set: dict[str, list[dict[str, Any]]] = {}
+        renderer = SourceExportService(self.workspace)
         for row in physical_changes:
             payload = dict(row)
             change_set_id = payload.pop("change_set_id")
+            baseline_ref = payload.pop("baseline_content_ref", None)
+            target_ref = payload.pop("target_content_ref", None)
+            payload["content_diff"] = []
+            payload["content_diff_truncated"] = False
+            payload["added_lines"] = 0
+            payload["deleted_lines"] = 0
+            if payload["change_type"] in {
+                "PAGE_ADDED",
+                "PAGE_REMOVED",
+                "CONTENT_CHANGED",
+            }:
+                before = (
+                    renderer.render_canonical_page(
+                        self.workspace.content_store.read_json(baseline_ref)
+                    )
+                    if baseline_ref
+                    else ""
+                )
+                after = (
+                    renderer.render_canonical_page(
+                        self.workspace.content_store.read_json(target_ref)
+                    )
+                    if target_ref
+                    else ""
+                )
+                diff = list(
+                    difflib.unified_diff(
+                        before.splitlines(),
+                        after.splitlines(),
+                        fromfile="before",
+                        tofile="after",
+                        n=3,
+                        lineterm="",
+                    )
+                )[2:]
+                payload["added_lines"] = sum(1 for line in diff if line.startswith("+"))
+                payload["deleted_lines"] = sum(1 for line in diff if line.startswith("-"))
+                payload["content_diff_truncated"] = len(diff) > 800
+                payload["content_diff"] = diff[:800]
             by_change_set.setdefault(change_set_id, []).append(payload)
 
         history: list[dict[str, Any]] = []

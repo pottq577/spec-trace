@@ -198,6 +198,19 @@ class SourceExportService:
             return False
         return _MANAGED_MARKER in head
 
+    def render_canonical_page(self, content: dict[str, Any]) -> str:
+        title = str(content.get("title") or "").strip()
+        output = [f"# {title}", ""] if title else []
+        output.extend(
+            self._render_blocks(
+                content.get("blocks") or [],
+                {},
+                page_depth=0,
+                visited=set(),
+            )
+        )
+        return "\n".join(output).rstrip() + "\n"
+
     def _render_document(
         self,
         document: dict[str, Any],

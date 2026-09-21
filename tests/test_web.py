@@ -136,6 +136,16 @@ class WebApplicationTest(unittest.TestCase):
             change_set["physical_changes"][0]["notion_page_id"],
             self.child_id,
         )
+        change = change_set["physical_changes"][0]
+        self.assertEqual(change["added_lines"], 2)
+        self.assertEqual(change["deleted_lines"], 0)
+        self.assertFalse(change["content_diff_truncated"])
+        self.assertTrue(
+            any(
+                line == "+주간 기준시간 기본값 40시간"
+                for line in change["content_diff"]
+            )
+        )
 
     def test_browse_directories_lists_server_folders_within_root(self) -> None:
         browse_root = Path(self.temp.name) / "workspaces"
