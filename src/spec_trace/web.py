@@ -14,6 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import SettingsService
+from .dashboard import HTML as DASHBOARD_HTML
 from .errors import ResourceNotFound, SpecTraceError, ValidationError
 from .notion import NotionCliClient, NotionPort
 from .review_documents import ReviewDocumentService
@@ -713,6 +714,8 @@ load().catch((e) => { $('tree').innerHTML = `<div class="status">${escapeHtml(e.
 </body>
 </html>"""
 
+HTML = DASHBOARD_HTML
+
 
 class WebApplication:
     def __init__(
@@ -1243,6 +1246,12 @@ class WebApplication:
                 "children": [],
             }
 
+        for node in nodes.values():
+            latest_change = node["latest_change"]
+            node["needs_review"] = bool(
+                latest_change and latest_change["analysis_status"] != "COMPLETED"
+            )
+
         roots: list[dict[str, Any]] = []
         for node in nodes.values():
             parent_id = node["parent_notion_page_id"]
@@ -1259,6 +1268,7 @@ class WebApplication:
 
         def annotate_subtree_changes(node: dict[str, Any]) -> dict[str, Any] | None:
             changed_documents = 1 if node["latest_change"] else 0
+            review_documents = 1 if node["needs_review"] else 0
             latest_created_at = (
                 node["latest_change"]["created_at"] if node["latest_change"] else None
             )
@@ -1267,6 +1277,7 @@ class WebApplication:
                 if child_summary is None:
                     continue
                 changed_documents += child_summary["changed_documents"]
+                review_documents += child_summary["review_documents"]
                 child_latest = child_summary["latest_created_at"]
                 if child_latest and (
                     latest_created_at is None or child_latest > latest_created_at
@@ -1277,6 +1288,7 @@ class WebApplication:
                 return None
             summary = {
                 "changed_documents": changed_documents,
+                "review_documents": review_documents,
                 "latest_created_at": latest_created_at,
             }
             node["subtree_change"] = summary

@@ -95,11 +95,14 @@ class WebApplicationTest(unittest.TestCase):
             "근무유형별 근무기준등록",
         )
 
-    def test_dashboard_exposes_document_change_filter(self) -> None:
+    def test_dashboard_exposes_review_workspace_filters(self) -> None:
         self.assertIn('id="documentFilter"', HTML)
+        self.assertIn('value="review"', HTML)
         self.assertIn('value="changed"', HTML)
-        self.assertIn('value="unchanged"', HTML)
         self.assertIn('value="uncollected"', HTML)
+        self.assertIn('value="unavailable"', HTML)
+        self.assertIn('id="detailPanel"', HTML)
+        self.assertIn('id="settingsDialog"', HTML)
 
     def test_state_exposes_latest_change_summary(self) -> None:
         self._create_child_change()
@@ -108,9 +111,11 @@ class WebApplicationTest(unittest.TestCase):
             self.workspace,
             notion_factory=lambda: self.fake,
         ).state()
-        latest = state["documents"][0]["children"][0]["latest_change"]
+        child = state["documents"][0]["children"][0]
+        latest = child["latest_change"]
 
         self.assertIsNotNone(latest)
+        self.assertTrue(child["needs_review"])
         self.assertEqual(latest["change_count"], 1)
         self.assertEqual(latest["analysis_status"], "PENDING_SOURCE_DIFF")
         self.assertIsNotNone(latest["created_at"])
@@ -127,11 +132,41 @@ class WebApplicationTest(unittest.TestCase):
 
         self.assertIsNone(root["latest_change"])
         self.assertEqual(root["subtree_change"]["changed_documents"], 1)
+        self.assertEqual(root["subtree_change"]["review_documents"], 1)
         self.assertEqual(
             root["subtree_change"]["latest_created_at"],
             child["latest_change"]["created_at"],
         )
         self.assertEqual(child["subtree_change"]["changed_documents"], 1)
+        self.assertEqual(child["subtree_change"]["review_documents"], 1)
+
+    def test_completed_change_remains_history_without_review_flag(self) -> None:
+        planning_document_id = self._create_child_change()
+        connection = self.workspace.database.connect()
+        try:
+            connection.execute(
+                """
+                UPDATE change_sets
+                SET analysis_status = 'COMPLETED'
+                WHERE planning_document_id = ?
+                """,
+                (planning_document_id,),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        state = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+        ).state()
+        root = state["documents"][0]
+        child = root["children"][0]
+
+        self.assertIsNotNone(child["latest_change"])
+        self.assertFalse(child["needs_review"])
+        self.assertEqual(root["subtree_change"]["changed_documents"], 1)
+        self.assertEqual(root["subtree_change"]["review_documents"], 0)
 
     def test_document_changes_returns_physical_change_history(self) -> None:
         planning_document_id = self._create_child_change()
