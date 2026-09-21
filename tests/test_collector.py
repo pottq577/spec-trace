@@ -94,6 +94,54 @@ class CollectorTest(unittest.TestCase):
             [(self.child_id, "CONTENT_CHANGED")],
         )
 
+    def test_reverting_content_reuses_existing_planning_snapshot(self) -> None:
+        first = self.collector.collect(self.document.planning_document_id)
+
+        self.fake.children[self.child_id] = [
+            paragraph(notion_id(201), "보상휴가 정책 변경")
+        ]
+        self.fake.pages[self.child_id]["last_edited_time"] = (
+            "2026-09-18T00:01:00.000Z"
+        )
+        second = self.collector.collect(self.document.planning_document_id)
+
+        self.fake.children[self.child_id] = [
+            paragraph(notion_id(201), "보상휴가 정책")
+        ]
+        self.fake.pages[self.child_id]["last_edited_time"] = (
+            "2026-09-18T00:02:00.000Z"
+        )
+        reverted = self.collector.collect(self.document.planning_document_id)
+
+        self.assertEqual(reverted.status, "SNAPSHOT_CREATED")
+        self.assertEqual(reverted.snapshot_id, first.snapshot_id)
+        self.assertNotEqual(reverted.snapshot_id, second.snapshot_id)
+        self.assertIsNotNone(reverted.change_set_id)
+
+        connection = self.workspace.database.connect()
+        try:
+            snapshot_count = connection.execute(
+                """
+                SELECT COUNT(*) AS c
+                FROM planning_document_snapshots
+                WHERE planning_document_id = ?
+                """,
+                (self.document.planning_document_id,),
+            ).fetchone()["c"]
+            current_snapshot_id = connection.execute(
+                """
+                SELECT current_snapshot_id
+                FROM planning_documents
+                WHERE planning_document_id = ?
+                """,
+                (self.document.planning_document_id,),
+            ).fetchone()["current_snapshot_id"]
+        finally:
+            connection.close()
+
+        self.assertEqual(snapshot_count, 2)
+        self.assertEqual(current_snapshot_id, first.snapshot_id)
+
     def test_unstable_capture_does_not_publish_snapshot(self) -> None:
         first = self.collector.collect(self.document.planning_document_id)
 

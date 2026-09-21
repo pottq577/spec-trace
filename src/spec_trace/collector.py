@@ -384,6 +384,61 @@ class SourceCollector:
                     ),
                 )
 
+            existing_snapshot = connection.execute(
+                """
+                SELECT planning_document_snapshot_id
+                FROM planning_document_snapshots
+                WHERE planning_document_id = ? AND aggregate_hash = ?
+                """,
+                (planning_document_id, aggregate_hash),
+            ).fetchone()
+            if existing_snapshot:
+                snapshot_id = existing_snapshot["planning_document_snapshot_id"]
+                logger.info(
+                    "planning snapshot reused document=%s baseline=%s snapshot=%s",
+                    planning_document_id,
+                    baseline_id,
+                    snapshot_id,
+                )
+                connection.execute(
+                    """
+                    UPDATE planning_documents
+                    SET current_snapshot_id = ?, source_status = 'AVAILABLE',
+                        last_collected_at = ?, attention_required = 0,
+                        source_last_edited_time = ?
+                    WHERE planning_document_id = ?
+                    """,
+                    (
+                        snapshot_id,
+                        captured_at,
+                        root_last_edited_time,
+                        planning_document_id,
+                    ),
+                )
+                change_set_id = None
+                if baseline_id and baseline_id != snapshot_id:
+                    change_set_id = self._create_change_set(
+                        connection,
+                        planning_document_id,
+                        baseline_id,
+                        snapshot_id,
+                        captured_at,
+                    )
+                connection.execute(
+                    """
+                    UPDATE collection_runs
+                    SET status = 'SNAPSHOT_CREATED', created_snapshot_id = ?,
+                        completed_at = ?
+                    WHERE collection_run_id = ?
+                    """,
+                    (snapshot_id, captured_at, run_id),
+                )
+                return CollectionResult(
+                    "SNAPSHOT_CREATED",
+                    planning_document_id,
+                    snapshot_id,
+                    change_set_id,
+                )
             snapshot_id = new_id()
             connection.execute(
                 """
