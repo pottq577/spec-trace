@@ -13,7 +13,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import SettingsService
-from .errors import SpecTraceError, ValidationError
+from .errors import ResourceNotFound, SpecTraceError, ValidationError
 from .notion import NotionCliClient, NotionPort
 from .review_documents import ReviewDocumentService
 from .runtime import RuntimeService
@@ -69,15 +69,23 @@ dialog::backdrop { background: rgba(17,24,39,.42); }
 ul.tree { list-style: none; padding-left: 0; margin: 0; }
 ul.tree ul { list-style: none; padding-left: 22px; margin: 5px 0; }
 .node { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 7px 8px; border-radius: 8px; }
+.node-copy { min-width: 0; }
 .node-main { display: flex; gap: 8px; align-items: center; min-width: 0; }
+.node-meta { margin-top: 3px; color: #667085; font-size: 12px; }
 button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
-.node-actions { display: flex; gap: 6px; }
+.node-actions { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .review-row { display: flex; gap: 10px; align-items: center; padding: 8px 4px; border-bottom: 1px solid #eef0f3; }
 .review-row label { margin: 0; flex: 1; }
 .review-row input { width: auto; }
 .node:hover { background: #f6f7f9; }
 .badge { font-size: 11px; padding: 2px 6px; border-radius: 999px; background: #eef0f3; color: #475467; }
 .badge.off { background: #fff1f1; color: #b42318; }
+.change-set { margin-top: 12px; padding: 12px; border: 1px solid #e5e7eb; border-radius: 10px; background: #f9fafb; }
+.change-set-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.change-set-badges { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+.change-list { margin-top: 10px; border-top: 1px solid #e5e7eb; }
+.change-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 0; border-bottom: 1px solid #eef0f3; }
+.change-row:last-child { border-bottom: 0; }
 .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; color: #667085; word-break: break-all; }
 .full { grid-column: 1 / -1; }
 @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
@@ -136,8 +144,13 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
       <div id="tree"></div>
       <div id="documentStatus" class="status"></div>
     </section>
+    <section class="card full" id="changesPanel" style="display:none">
+      <h2 id="changesTitle">변경사항</h2>
+      <div id="changesSummary" class="status"></div>
+      <div id="changesList"></div>
+    </section>
     <section class="card full" id="reviewPanel" style="display:none">
-      <h2 id="reviewTitle">로컬 검토 문서</h2>
+      <h2 id="reviewTitle">개발 검토 전달</h2>
       <div class="path" id="reviewDirectory"></div>
       <div id="reviewDocuments"></div>
       <div class="actions">
@@ -363,15 +376,46 @@ async function openFolderPicker() {
   if (!loaded && initial !== state.browse_root) await browseFolders(state.browse_root || '');
 }
 
+function formatTimestamp(value) {
+  if (!value) return '-';
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return String(value);
+  return new Intl.DateTimeFormat('ko-KR', {
+    month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit',
+  }).format(parsed);
+}
+function changeTypeLabel(value) {
+  return ({
+    PAGE_ADDED: '문서 추가',
+    PAGE_REMOVED: '문서 삭제',
+    CONTENT_CHANGED: '내용 변경',
+    PARENT_CHANGED: '위치 변경',
+    ROLE_CHANGED: '역할 변경',
+  })[value] || value;
+}
+function analysisStatusLabel(value) {
+  return ({
+    PENDING_SOURCE_DIFF: '의미 분석 대기',
+    SOURCE_DIFF_PROPOSED: '변경 분석 제안',
+    SOURCE_DIFF_ADOPTED: '변경 분석 반영',
+    IMPACT_PROPOSED: '영향 분석 제안',
+    COMPLETED: '분석 완료',
+    FAILED: '분석 실패',
+  })[value] || value;
+}
 function nodeHtml(node) {
   const badge = node.source_status === 'AVAILABLE'
     ? '<span class="badge">AVAILABLE</span>'
     : '<span class="badge off">UNAVAILABLE</span>';
+  const latest = node.latest_change;
+  const changeMeta = latest
+    ? `<div class="node-meta">최근 변경 ${Number(latest.change_count || 0)}건 · ${escapeHtml(formatTimestamp(latest.created_at))}</div>`
+    : `<div class="node-meta">${node.current_snapshot_id ? '변경 이력 없음' : '아직 수집되지 않음'}</div>`;
   const action = node.source_status === 'AVAILABLE'
-    ? `<div class="node-actions"><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">로컬에 저장</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">검토 문서</button></div>`
+    ? `<div class="node-actions"><button class="secondary mini" onclick="openChanges('${node.planning_document_id}')">변경사항</button><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">로컬에 저장</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">개발 검토</button></div>`
     : '';
   const children = (node.children || []).map(nodeHtml).join('');
-  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-main"><span>${escapeHtml(node.title)}</span>${badge}</div>${action}</div>${children ? `<ul>${children}</ul>` : ''}</li>`;
+  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-copy"><div class="node-main"><span>${escapeHtml(node.title)}</span>${badge}</div>${changeMeta}</div>${action}</div>${children ? `<ul>${children}</ul>` : ''}</li>`;
 }
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -395,13 +439,44 @@ async function exportDocument(id) {
   } catch (e) { $('documentStatus').textContent = e.message; }
 }
 window.exportDocument = exportDocument;
+async function openChanges(id) {
+  $('reviewPanel').style.display = 'none';
+  $('changesPanel').style.display = 'block';
+  const title = findNodeTitle(state.documents || [], id) || id;
+  $('changesTitle').textContent = `${title} · 변경사항`;
+  $('changesSummary').textContent = '변경 이력을 불러오는 중…';
+  $('changesList').innerHTML = '';
+  $('changesPanel').scrollIntoView({behavior:'smooth', block:'start'});
+  try {
+    const result = await api(`/api/changes?planning_document_id=${encodeURIComponent(id)}`);
+    const changeSets = result.change_sets || [];
+    if (!changeSets.length) {
+      $('changesSummary').textContent = '아직 변경 이력이 없습니다. 최초 Snapshot만 존재하거나 수집 후 내용이 변경되지 않았습니다.';
+      return;
+    }
+    const latest = changeSets[0];
+    $('changesSummary').textContent = `변경 이력 ${changeSets.length}회 · 최근 변경 ${latest.change_count}건 · ${formatTimestamp(latest.created_at)}`;
+    $('changesList').innerHTML = changeSets.map((changeSet) => {
+      const changes = changeSet.physical_changes || [];
+      const rows = changes.length
+        ? changes.map((change) => `<div class="change-row"><div><strong>${escapeHtml(change.page_title || change.notion_page_id)}</strong><div class="node-meta">${escapeHtml(change.notion_page_id)}</div></div><span class="badge">${escapeHtml(changeTypeLabel(change.change_type))}</span></div>`).join('')
+        : '<div class="status">기록된 물리 변경이 없습니다.</div>';
+      return `<div class="change-set"><div class="change-set-head"><div><strong>${escapeHtml(formatTimestamp(changeSet.target_captured_at || changeSet.created_at))}</strong><div class="node-meta">${escapeHtml(formatTimestamp(changeSet.baseline_captured_at))} → ${escapeHtml(formatTimestamp(changeSet.target_captured_at))}</div></div><div class="change-set-badges"><span class="badge">${Number(changeSet.change_count || 0)}건</span><span class="badge">${escapeHtml(analysisStatusLabel(changeSet.analysis_status))}</span></div></div><div class="change-list">${rows}</div></div>`;
+    }).join('');
+  } catch (e) {
+    $('changesSummary').textContent = `변경 이력 조회 실패: ${e.message}`;
+  }
+}
+window.openChanges = openChanges;
 let selectedReviewDocumentId = null;
 async function openReviewDocuments(id) {
   selectedReviewDocumentId = id;
+  $('changesPanel').style.display = 'none';
   $('reviewPanel').style.display = 'block';
   const title = findNodeTitle(state.documents || [], id) || id;
-  $('reviewTitle').textContent = `${title} · 로컬 검토 문서`;
-  $('reviewStatus').textContent = '로컬 Markdown을 확인하는 중…';
+  $('reviewTitle').textContent = `${title} · 개발 검토 전달`;
+  $('reviewStatus').textContent = '개발자가 작성한 로컬 Markdown을 확인하는 중…';
+  $('reviewPanel').scrollIntoView({behavior:'smooth', block:'start'});
   try {
     const result = await api('/api/local-documents', {method:'POST', body:JSON.stringify({planning_document_id:id})});
     $('reviewDirectory').textContent = result.directory;
@@ -410,7 +485,7 @@ async function openReviewDocuments(id) {
           const state = doc.published ? '게시됨' : (doc.dirty ? '수정됨' : '미게시');
           return `<div class="review-row"><input type="checkbox" class="review-check" value="${escapeHtml(doc.path)}"><label>${escapeHtml(doc.path)}</label><span class="badge">${state}</span></div>`;
         }).join('')
-      : '<div class="status">게시할 로컬 Markdown이 없습니다.</div>';
+      : '<div class="status">전달할 개발 검토 Markdown이 없습니다. Notion 원본과 같은 폴더에 직접 작성한 .md 파일을 추가하세요.</div>';
     $('reviewStatus').textContent = '';
   } catch (e) { $('reviewStatus').textContent = e.message; }
 }
@@ -815,6 +890,85 @@ class WebApplication:
             "failures": failures,
         }
 
+    def document_changes(self, planning_document_id: str) -> dict[str, Any]:
+        document_id = str(planning_document_id or "").strip()
+        if not document_id:
+            raise ValidationError("planning_document_id is required")
+
+        connection = self.workspace.database.connect()
+        try:
+            document = connection.execute(
+                """
+                SELECT planning_document_id, title
+                FROM planning_documents
+                WHERE planning_document_id = ?
+                """,
+                (document_id,),
+            ).fetchone()
+            if document is None:
+                raise ResourceNotFound(
+                    f"planning document not found: {document_id}"
+                )
+
+            change_sets = connection.execute(
+                """
+                SELECT cs.change_set_id, cs.baseline_snapshot_id,
+                       cs.target_snapshot_id, cs.analysis_status, cs.created_at,
+                       baseline.captured_at AS baseline_captured_at,
+                       target.captured_at AS target_captured_at,
+                       COUNT(pc.physical_change_id) AS change_count
+                FROM change_sets cs
+                JOIN planning_document_snapshots baseline
+                  ON baseline.planning_document_snapshot_id = cs.baseline_snapshot_id
+                JOIN planning_document_snapshots target
+                  ON target.planning_document_snapshot_id = cs.target_snapshot_id
+                LEFT JOIN physical_changes pc
+                  ON pc.change_set_id = cs.change_set_id
+                WHERE cs.planning_document_id = ?
+                GROUP BY cs.change_set_id, cs.baseline_snapshot_id,
+                         cs.target_snapshot_id, cs.analysis_status, cs.created_at,
+                         baseline.captured_at, target.captured_at
+                ORDER BY cs.created_at DESC, cs.change_set_id DESC
+                """,
+                (document_id,),
+            ).fetchall()
+            physical_changes = connection.execute(
+                """
+                SELECT pc.*, COALESCE(sp.title, pc.notion_page_id) AS page_title
+                FROM physical_changes pc
+                JOIN change_sets cs ON cs.change_set_id = pc.change_set_id
+                LEFT JOIN source_pages sp
+                  ON sp.planning_document_id = cs.planning_document_id
+                 AND sp.notion_page_id = pc.notion_page_id
+                WHERE cs.planning_document_id = ?
+                ORDER BY cs.created_at DESC, cs.change_set_id DESC,
+                         page_title, pc.notion_page_id, pc.change_type
+                """,
+                (document_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+
+        by_change_set: dict[str, list[dict[str, Any]]] = {}
+        for row in physical_changes:
+            payload = dict(row)
+            change_set_id = payload.pop("change_set_id")
+            by_change_set.setdefault(change_set_id, []).append(payload)
+
+        history: list[dict[str, Any]] = []
+        for row in change_sets:
+            payload = dict(row)
+            payload["physical_changes"] = by_change_set.get(
+                payload["change_set_id"], []
+            )
+            history.append(payload)
+
+        return {
+            "planning_document_id": document["planning_document_id"],
+            "title": document["title"],
+            "change_sets": history,
+        }
+
     def local_documents(self, planning_document_id: str) -> dict[str, Any]:
         document_id = str(planning_document_id or "").strip()
         if not document_id:
@@ -857,9 +1011,37 @@ class WebApplication:
                 ORDER BY title, planning_document_id
                 """
             ).fetchall()
+            latest_change_rows = connection.execute(
+                """
+                SELECT cs.planning_document_id, cs.change_set_id,
+                       cs.analysis_status, cs.created_at,
+                       COUNT(pc.physical_change_id) AS change_count
+                FROM change_sets cs
+                LEFT JOIN physical_changes pc
+                  ON pc.change_set_id = cs.change_set_id
+                WHERE cs.change_set_id = (
+                    SELECT candidate.change_set_id
+                    FROM change_sets candidate
+                    WHERE candidate.planning_document_id = cs.planning_document_id
+                    ORDER BY candidate.created_at DESC, candidate.change_set_id DESC
+                    LIMIT 1
+                )
+                GROUP BY cs.planning_document_id, cs.change_set_id,
+                         cs.analysis_status, cs.created_at
+                """
+            ).fetchall()
         finally:
             connection.close()
 
+        latest_by_document = {
+            row["planning_document_id"]: {
+                "change_set_id": row["change_set_id"],
+                "analysis_status": row["analysis_status"],
+                "created_at": row["created_at"],
+                "change_count": row["change_count"],
+            }
+            for row in latest_change_rows
+        }
         nodes: dict[str, dict[str, Any]] = {}
         for row in rows:
             nodes[row["root_notion_page_id"]] = {
@@ -870,6 +1052,9 @@ class WebApplication:
                 "current_snapshot_id": row["current_snapshot_id"],
                 "last_collected_at": row["last_collected_at"],
                 "parent_notion_page_id": row["menu_parent_notion_page_id"],
+                "latest_change": latest_by_document.get(
+                    row["planning_document_id"]
+                ),
                 "children": [],
             }
 
@@ -908,6 +1093,11 @@ class RequestHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/cycle":
             self._handle_json(self.app.cycle_status)
+            return
+        if path == "/api/changes":
+            query = parse_qs(parsed.query)
+            document_id = (query.get("planning_document_id") or [""])[0]
+            self._handle_json(lambda: self.app.document_changes(document_id))
             return
         if path == "/api/directories":
             query = parse_qs(parsed.query)

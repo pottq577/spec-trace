@@ -6,7 +6,7 @@ import time
 import unittest
 from pathlib import Path
 
-from fakes import FakeNotion, menu_page, notion_id
+from fakes import FakeNotion, menu_page, notion_id, paragraph
 
 from spec_trace.config import SettingsService
 from spec_trace.errors import ValidationError
@@ -53,6 +53,35 @@ class WebApplicationTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def _create_child_change(self) -> str:
+        connection = self.workspace.database.connect()
+        try:
+            planning_document_id = connection.execute(
+                """
+                SELECT planning_document_id
+                FROM planning_documents
+                WHERE root_notion_page_id = ?
+                """,
+                (self.child_id,),
+            ).fetchone()["planning_document_id"]
+        finally:
+            connection.close()
+
+        runtime = RuntimeService(
+            self.workspace,
+            self.fake,
+            sleeper=lambda _: None,
+        )
+        runtime.collect_document(planning_document_id)
+        self.fake.children[self.child_id] = [
+            paragraph(notion_id(899), "주간 기준시간 기본값 40시간")
+        ]
+        self.fake.pages[self.child_id]["last_edited_time"] = (
+            "2026-09-21T00:01:00.000Z"
+        )
+        runtime.collect_document(planning_document_id)
+        return planning_document_id
+
     def test_state_returns_hierarchical_document_tree(self) -> None:
         state = WebApplication(
             self.workspace,
@@ -64,6 +93,48 @@ class WebApplicationTest(unittest.TestCase):
         self.assertEqual(
             state["documents"][0]["children"][0]["title"],
             "근무유형별 근무기준등록",
+        )
+
+    def test_state_exposes_latest_change_summary(self) -> None:
+        self._create_child_change()
+
+        state = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+        ).state()
+        latest = state["documents"][0]["children"][0]["latest_change"]
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["change_count"], 1)
+        self.assertEqual(latest["analysis_status"], "PENDING_SOURCE_DIFF")
+        self.assertIsNotNone(latest["created_at"])
+
+    def test_document_changes_returns_physical_change_history(self) -> None:
+        planning_document_id = self._create_child_change()
+
+        result = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+        ).document_changes(planning_document_id)
+
+        self.assertEqual(result["title"], "근무유형별 근무기준등록")
+        self.assertEqual(len(result["change_sets"]), 1)
+        change_set = result["change_sets"][0]
+        self.assertEqual(change_set["change_count"], 1)
+        self.assertEqual(change_set["analysis_status"], "PENDING_SOURCE_DIFF")
+        self.assertIsNotNone(change_set["baseline_captured_at"])
+        self.assertIsNotNone(change_set["target_captured_at"])
+        self.assertEqual(
+            change_set["physical_changes"][0]["change_type"],
+            "CONTENT_CHANGED",
+        )
+        self.assertEqual(
+            change_set["physical_changes"][0]["page_title"],
+            "근무유형별 근무기준등록",
+        )
+        self.assertEqual(
+            change_set["physical_changes"][0]["notion_page_id"],
+            self.child_id,
         )
 
     def test_browse_directories_lists_server_folders_within_root(self) -> None:
