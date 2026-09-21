@@ -12,7 +12,7 @@ from spec_trace.config import SettingsService
 from spec_trace.errors import ValidationError
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.runtime import RuntimeService
-from spec_trace.web import WebApplication
+from spec_trace.web import HTML, WebApplication
 from spec_trace.workspace import Workspace
 
 
@@ -95,6 +95,12 @@ class WebApplicationTest(unittest.TestCase):
             "근무유형별 근무기준등록",
         )
 
+    def test_dashboard_exposes_document_change_filter(self) -> None:
+        self.assertIn('id="documentFilter"', HTML)
+        self.assertIn('value="changed"', HTML)
+        self.assertIn('value="unchanged"', HTML)
+        self.assertIn('value="uncollected"', HTML)
+
     def test_state_exposes_latest_change_summary(self) -> None:
         self._create_child_change()
 
@@ -108,6 +114,24 @@ class WebApplicationTest(unittest.TestCase):
         self.assertEqual(latest["change_count"], 1)
         self.assertEqual(latest["analysis_status"], "PENDING_SOURCE_DIFF")
         self.assertIsNotNone(latest["created_at"])
+
+    def test_state_rolls_up_descendant_change_summary(self) -> None:
+        self._create_child_change()
+
+        state = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+        ).state()
+        root = state["documents"][0]
+        child = root["children"][0]
+
+        self.assertIsNone(root["latest_change"])
+        self.assertEqual(root["subtree_change"]["changed_documents"], 1)
+        self.assertEqual(
+            root["subtree_change"]["latest_created_at"],
+            child["latest_change"]["created_at"],
+        )
+        self.assertEqual(child["subtree_change"]["changed_documents"], 1)
 
     def test_document_changes_returns_physical_change_history(self) -> None:
         planning_document_id = self._create_child_change()

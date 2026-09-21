@@ -67,6 +67,7 @@ dialog::backdrop { background: rgba(17,24,39,.42); }
 .progress-stats { margin-top: 5px; color: #667085; font-size: 12px; }
 .toolbar { display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap; }
 .toolbar input { flex: 1 1 260px; }
+.toolbar select { flex: 0 0 150px; border: 1px solid #d0d5dd; border-radius: 8px; padding: 10px 11px; background: #fff; font: inherit; }
 ul.tree { list-style: none; padding-left: 0; margin: 0; }
 ul.tree ul { list-style: none; padding-left: 22px; margin: 5px 0; }
 .node { display: flex; gap: 8px; align-items: center; justify-content: space-between; padding: 7px 8px; border-radius: 8px; }
@@ -161,6 +162,12 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
       <h2>Notion 문서</h2>
       <div class="toolbar">
         <input id="search" placeholder="문서 제목 검색">
+        <select id="documentFilter" aria-label="변경 이력 필터">
+          <option value="all">변경: 전체</option>
+          <option value="changed">변경 있음</option>
+          <option value="unchanged">변경 없음</option>
+          <option value="uncollected">미수집</option>
+        </select>
         <button class="secondary" id="collapseAll" type="button">모두 접기</button>
         <button class="secondary" id="expandAll" type="button">모두 펼치기</button>
         <button class="secondary" id="refresh">새로고침</button>
@@ -433,9 +440,26 @@ function nodeHtml(node, searching=false) {
     ? '<span class="badge">AVAILABLE</span>'
     : '<span class="badge off">UNAVAILABLE</span>';
   const latest = node.latest_change;
-  const changeMeta = latest
-    ? `<div class="node-meta">최근 변경 ${Number(latest.change_count || 0)}건 · ${escapeHtml(formatTimestamp(latest.created_at))}</div>`
-    : `<div class="node-meta">${node.current_snapshot_id ? '변경 이력 없음' : '아직 수집되지 않음'}</div>`;
+  const subtree = node.subtree_change;
+  const ownChangedDocuments = latest ? 1 : 0;
+  const descendantChangedDocuments = Math.max(
+    0,
+    Number(subtree?.changed_documents || 0) - ownChangedDocuments,
+  );
+  const subtreeBadge = descendantChangedDocuments
+    ? `<span class="badge">하위 변경 ${descendantChangedDocuments}</span>`
+    : '';
+  let changeMeta;
+  if (latest) {
+    const descendantMeta = descendantChangedDocuments
+      ? ` · 하위 ${descendantChangedDocuments}개 문서 변경`
+      : '';
+    changeMeta = `<div class="node-meta">최근 변경 ${Number(latest.change_count || 0)}건 · ${escapeHtml(formatTimestamp(latest.created_at))}${descendantMeta}</div>`;
+  } else if (subtree) {
+    changeMeta = `<div class="node-meta">하위 ${Number(subtree.changed_documents || 0)}개 문서에 변경 이력 · 최근 ${escapeHtml(formatTimestamp(subtree.latest_created_at))}</div>`;
+  } else {
+    changeMeta = `<div class="node-meta">${node.current_snapshot_id ? '변경 이력 없음' : '아직 수집되지 않음'}</div>`;
+  }
   const action = node.source_status === 'AVAILABLE'
     ? `<div class="node-actions"><button class="secondary mini" onclick="openChanges('${node.planning_document_id}')">변경사항</button><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">로컬에 저장</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">개발 검토</button></div>`
     : '';
@@ -446,7 +470,7 @@ function nodeHtml(node, searching=false) {
     ? `<button type="button" class="tree-toggle" aria-expanded="${collapsed ? 'false' : 'true'}" aria-label="${collapsed ? '펼치기' : '접기'}: ${escapeHtml(node.title)}" onclick="toggleTreeNode('${node.planning_document_id}')">${collapsed ? '▸' : '▾'}</button>`
     : '<span class="tree-toggle-placeholder" aria-hidden="true"></span>';
   const children = childNodes.map((child) => nodeHtml(child, searching)).join('');
-  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-copy"><div class="node-main">${toggle}<span>${escapeHtml(node.title)}</span>${badge}</div>${changeMeta}</div>${action}</div>${children ? `<ul class="tree-children"${collapsed ? ' hidden' : ''}>${children}</ul>` : ''}</li>`;
+  return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-copy"><div class="node-main">${toggle}<span>${escapeHtml(node.title)}</span>${badge}${subtreeBadge}</div>${changeMeta}</div>${action}</div>${children ? `<ul class="tree-children"${collapsed ? ' hidden' : ''}>${children}</ul>` : ''}</li>`;
 }
 function escapeHtml(value) {
   return String(value).replace(/[&<>"']/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -468,16 +492,29 @@ function setAllTreeCollapsed(collapsed) {
   (state.documents || []).forEach(visit);
   renderTree();
 }
+function matchesDocumentFilter(node, filterValue) {
+  if (filterValue === 'changed') return Boolean(node.subtree_change);
+  if (filterValue === 'unchanged') {
+    return Boolean(node.current_snapshot_id) && !node.subtree_change;
+  }
+  if (filterValue === 'uncollected') return !node.current_snapshot_id;
+  return true;
+}
 function renderTree() {
   const q = $('search').value.trim().toLowerCase();
+  const filterValue = $('documentFilter').value;
   const filter = (node) => {
     const children = (node.children || []).map(filter).filter(Boolean);
-    if (!q || node.title.toLowerCase().includes(q) || children.length) return {...node, children};
+    const titleMatches = !q || node.title.toLowerCase().includes(q);
+    if ((titleMatches && matchesDocumentFilter(node, filterValue)) || children.length) {
+      return {...node, children};
+    }
     return null;
   };
   const nodes = (state.documents || []).map(filter).filter(Boolean);
+  const filtering = Boolean(q || filterValue !== 'all');
   $('tree').innerHTML = nodes.length
-    ? `<ul class="tree">${nodes.map((node) => nodeHtml(node, Boolean(q))).join('')}</ul>`
+    ? `<ul class="tree">${nodes.map((node) => nodeHtml(node, filtering)).join('')}</ul>`
     : '<div class="status">표시할 문서가 없습니다.</div>';
 }
 async function exportDocument(id) {
@@ -611,6 +648,7 @@ $('selectFolder').addEventListener('click', () => {
   $('exportStatus').textContent = '폴더를 선택했습니다. 저장 위치 적용 또는 전체 저장을 눌러 반영하세요.';
 });
 $('search').addEventListener('input', renderTree);
+$('documentFilter').addEventListener('change', renderTree);
 $('collapseAll').addEventListener('click', () => setAllTreeCollapsed(true));
 $('expandAll').addEventListener('click', () => setAllTreeCollapsed(false));
 $('refresh').addEventListener('click', load);
@@ -1219,7 +1257,34 @@ class WebApplication:
             for value in values:
                 sort_tree(value["children"])
 
+        def annotate_subtree_changes(node: dict[str, Any]) -> dict[str, Any] | None:
+            changed_documents = 1 if node["latest_change"] else 0
+            latest_created_at = (
+                node["latest_change"]["created_at"] if node["latest_change"] else None
+            )
+            for child in node["children"]:
+                child_summary = annotate_subtree_changes(child)
+                if child_summary is None:
+                    continue
+                changed_documents += child_summary["changed_documents"]
+                child_latest = child_summary["latest_created_at"]
+                if child_latest and (
+                    latest_created_at is None or child_latest > latest_created_at
+                ):
+                    latest_created_at = child_latest
+            if not changed_documents:
+                node["subtree_change"] = None
+                return None
+            summary = {
+                "changed_documents": changed_documents,
+                "latest_created_at": latest_created_at,
+            }
+            node["subtree_change"] = summary
+            return summary
+
         sort_tree(roots)
+        for root in roots:
+            annotate_subtree_changes(root)
         return roots
 
 
