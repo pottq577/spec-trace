@@ -171,7 +171,11 @@ function renderCycleResult(result) {
   const collections = result.collections || [];
   const answers = result.answers || [];
   const reviewResponses = result.review_responses || [];
-  $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 ${collections.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건`;
+  const failedStatuses = new Set(['SOURCE_UNAVAILABLE', 'SOURCE_UNSTABLE', 'COLLECTION_FAILED']);
+  const failures = collections.filter((item) => failedStatuses.has(item.status));
+  const firstFailure = failures.find((item) => item.failure_detail);
+  const failureDetail = firstFailure ? `\n첫 실패: ${firstFailure.failure_detail}` : '';
+  $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 성공 ${collections.length - failures.length}개 · 실패 ${failures.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건${failureDetail}`;
 }
 
 async function restoreCycleState() {
@@ -558,9 +562,13 @@ class WebApplication:
                 "SOURCE_UNSTABLE",
                 "COLLECTION_FAILED",
             }:
-                raise ValidationError(
-                    f"cannot export document after collection status {collection['status']}"
+                message = (
+                    "cannot export document after collection status "
+                    f"{collection['status']}"
                 )
+                if collection.get("failure_detail"):
+                    message += f": {collection['failure_detail']}"
+                raise ValidationError(message)
             exported = SourceExportService(self.workspace).export(document_id)
         return {"collection": collection, "export": exported}
 

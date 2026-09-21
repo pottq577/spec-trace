@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any
 
@@ -11,6 +12,8 @@ from .notion import NotionPort, normalize_notion_id
 from .planning_documents import PlanningDocumentService
 from .references import extract_block_references
 from .util import canonical_json_bytes, new_id, sha256_bytes, utc_now
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -49,6 +52,7 @@ class CollectionResult:
     snapshot_id: str | None
     change_set_id: str | None = None
     failure_code: str | None = None
+    failure_detail: str | None = None
 
 
 class SourceCollector:
@@ -104,7 +108,12 @@ class SourceCollector:
                 document.current_snapshot_id,
                 failure_code="SOURCE_UNAVAILABLE",
             )
-        except ExternalServiceError:
+        except ExternalServiceError as exc:
+            logger.warning(
+                "collection external service failure document=%s error=%s",
+                planning_document_id,
+                exc,
+            )
             self._finish_run(
                 run_id,
                 "COLLECTION_FAILED",
@@ -116,6 +125,7 @@ class SourceCollector:
                 planning_document_id,
                 document.current_snapshot_id,
                 failure_code="EXTERNAL_SERVICE",
+                failure_detail=str(exc),
             )
         except Exception:
             self._finish_run(

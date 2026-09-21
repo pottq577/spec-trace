@@ -115,7 +115,11 @@ class NotionCliClient:
             raise ValidationError(
                 "ntn command not found; install Notion CLI and run `ntn login`"
             )
-        version = os.environ.get("NOTION_VERSION", DEFAULT_NOTION_VERSION)
+        version = (
+            os.environ.get("NOTION_API_VERSION")
+            or os.environ.get("NOTION_VERSION")
+            or DEFAULT_NOTION_VERSION
+        )
         return cls(binary, notion_version=version)
 
     def retrieve_page(self, page_id: str) -> dict[str, Any]:
@@ -238,8 +242,6 @@ class NotionCliClient:
             self.binary,
             "api",
             path,
-            "--notion-version",
-            self.notion_version,
         ]
         if method != "GET":
             command.extend(["-X", method])
@@ -281,6 +283,7 @@ class NotionCliClient:
                 capture_output=True,
                 text=True,
                 timeout=self.timeout_seconds,
+                env={**os.environ, "NOTION_API_VERSION": self.notion_version},
             )
         except FileNotFoundError as exc:
             raise ValidationError(

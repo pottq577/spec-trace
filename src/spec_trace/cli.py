@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .analysis import AnalysisService
+from .config import SettingsService
 from .devflow import DevFlowService
 from .errors import SpecTraceError, ValidationError
 from .notion import NotionCliClient
@@ -178,11 +179,17 @@ def run(args: argparse.Namespace) -> Any:
         service = PlanningDocumentService(workspace.database, notion)
         if args.source_command == "sync":
             with WorkspaceLock(workspace):
-                return service.sync_data_source(
+                result = service.sync_data_source(
                     args.database_id,
                     args.data_source_id,
                     parent_property=args.parent_property,
                 )
+                SettingsService(workspace).set_notion_source(
+                    args.database_id,
+                    args.data_source_id,
+                    parent_property=args.parent_property,
+                )
+            return result
     if args.command == "document":
         notion = NotionCliClient.from_environment()
         service = PlanningDocumentService(workspace.database, notion)

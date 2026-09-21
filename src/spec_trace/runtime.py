@@ -7,7 +7,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .collector import SourceCollector
-from .config import SettingsService
+from .config import NotionSourceSettings, SettingsService
 from .errors import ResourceNotFound, SpecTraceError, ValidationError
 from .notion import NotionPort
 from .planning_documents import PlanningDocumentService
@@ -359,16 +359,49 @@ class RuntimeService:
         return results
 
     def sync_source(self) -> dict[str, Any]:
-        settings = SettingsService(self.workspace).load()
-        source = settings.notion_source
+        settings_service = SettingsService(self.workspace)
+        source = settings_service.load().notion_source
         if source is None:
-            return {"status": "SKIPPED", "reason": "SOURCE_NOT_CONFIGURED"}
+            source = self._infer_source_settings()
+            if source is None:
+                return {"status": "SKIPPED", "reason": "SOURCE_NOT_CONFIGURED"}
+            settings_service.set_notion_source(
+                source.database_id,
+                source.data_source_id,
+                parent_property=source.parent_property,
+            )
+            logger.info(
+                "inferred Notion source database=%s data_source=%s",
+                source.database_id,
+                source.data_source_id,
+            )
         result = PlanningDocumentService(self.database, self.notion).sync_data_source(
             source.database_id,
             source.data_source_id,
             parent_property=source.parent_property,
         )
         return {"status": "COMPLETED", **result}
+
+    def _infer_source_settings(self) -> NotionSourceSettings | None:
+        connection = self.database.connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT DISTINCT notion_database_id, notion_data_source_id
+                FROM planning_documents
+                WHERE notion_data_source_id IS NOT NULL
+                ORDER BY notion_database_id, notion_data_source_id
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+        if len(rows) != 1:
+            return None
+        row = rows[0]
+        return NotionSourceSettings(
+            database_id=row["notion_database_id"],
+            data_source_id=row["notion_data_source_id"],
+        )
 
     def run_cycle(self) -> dict[str, Any]:
         logger.info("cycle phase=source_sync start")

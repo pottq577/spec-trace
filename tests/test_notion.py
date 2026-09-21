@@ -37,7 +37,7 @@ class NotionClientTest(unittest.TestCase):
         with (
             patch.dict(
                 os.environ,
-                {"NTN_BIN": "ntn", "NOTION_VERSION": "2026-03-11"},
+                {"NTN_BIN": "ntn", "NOTION_API_VERSION": "2026-03-11"},
                 clear=True,
             ),
             patch("spec_trace.notion.shutil.which", return_value="/usr/bin/ntn"),
@@ -58,13 +58,10 @@ class NotionClientTest(unittest.TestCase):
         self.assertEqual(result["object"], "page")
         self.assertEqual(
             runner.calls[0][0],
-            [
-                "ntn",
-                "api",
-                "v1/pages/123456781234123412341234567890ab",
-                "--notion-version",
-                "2026-03-11",
-            ],
+            ["ntn", "api", "v1/pages/123456781234123412341234567890ab"],
+        )
+        self.assertEqual(
+            runner.calls[0][1]["env"]["NOTION_API_VERSION"], "2026-03-11"
         )
 
     def test_block_children_consumes_ntn_pagination(self) -> None:

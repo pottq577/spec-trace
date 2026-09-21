@@ -6,6 +6,8 @@ from pathlib import Path
 
 from fakes import FakeNotion, notion_id, page, paragraph
 
+from spec_trace.config import SettingsService
+from spec_trace.errors import ExternalServiceError
 from spec_trace.pending import PendingOperationService
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.runtime import RuntimeService, StatusService
@@ -62,6 +64,47 @@ class RuntimeServiceTest(unittest.TestCase):
         self.assertEqual(result["status"], "SNAPSHOT_CREATED")
         self.assertEqual(result["attempts"], 2)
         self.assertEqual(delays, [5.0])
+
+    def test_collect_document_exposes_external_service_failure_detail(self) -> None:
+        def fail_retrieve_page(_: str):
+            raise ExternalServiceError("ntn request failed: invalid option")
+
+        self.fake.retrieve_page = fail_retrieve_page
+        result = RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        ).collect_document(self.document.planning_document_id)
+
+        self.assertEqual(result["status"], "COLLECTION_FAILED")
+        self.assertEqual(result["failure_code"], "EXTERNAL_SERVICE")
+        self.assertEqual(
+            result["failure_detail"], "ntn request failed: invalid option"
+        )
+
+    def test_sync_source_infers_and_persists_existing_data_source(self) -> None:
+        self.fake.pages[self.root_id]["properties"]["상위 항목"] = {
+            "id": "parent",
+            "type": "relation",
+            "relation": [],
+        }
+        PlanningDocumentService(
+            self.workspace.database, self.fake
+        ).sync_data_source(
+            self.database_id,
+            self.data_source_id,
+        )
+        self.assertIsNone(SettingsService(self.workspace).load().notion_source)
+
+        result = RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        ).sync_source()
+
+        self.assertEqual(result["status"], "COMPLETED")
+        self.assertEqual(result["active_pages"], 1)
+        source = SettingsService(self.workspace).load().notion_source
+        self.assertIsNotNone(source)
+        assert source is not None
+        self.assertEqual(source.database_id, self.database_id)
+        self.assertEqual(source.data_source_id, self.data_source_id)
 
     def test_run_cycle_reconciles_projection_before_collection(self) -> None:
         PendingOperationService(self.workspace.database).schedule(
