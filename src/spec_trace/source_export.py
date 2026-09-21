@@ -383,9 +383,9 @@ def _yaml_line(key: str, value: Any) -> str:
 def _rich_text(values: list[dict[str, Any]]) -> str:
     parts: list[str] = []
     for item in values:
-        text = str(
-            item.get("plain_text") or (item.get("text") or {}).get("content") or ""
-        )
+        text_value = item.get("text")
+        text_payload = text_value if isinstance(text_value, dict) else {}
+        text = str(item.get("plain_text") or text_payload.get("content") or "")
         if not text:
             continue
         annotations = item.get("annotations") or {}
@@ -397,7 +397,9 @@ def _rich_text(values: list[dict[str, Any]]) -> str:
             text = f"*{text}*"
         if annotations.get("strikethrough"):
             text = f"~~{text}~~"
-        href = item.get("href") or (item.get("text") or {}).get("link", {}).get("url")
+        link_value = text_payload.get("link")
+        link_payload = link_value if isinstance(link_value, dict) else {}
+        href = item.get("href") or link_payload.get("url")
         if href:
             text = f"[{text}]({href})"
         parts.append(text)

@@ -9,7 +9,7 @@ from fakes import FakeNotion, child_page, menu_page, notion_id, page, paragraph
 from spec_trace.config import SettingsService
 from spec_trace.planning_documents import PlanningDocumentService
 from spec_trace.runtime import RuntimeService
-from spec_trace.source_export import SourceExportService
+from spec_trace.source_export import SourceExportService, _rich_text
 from spec_trace.workspace import Workspace
 
 
@@ -115,6 +115,17 @@ class SourceExportServiceTest(unittest.TestCase):
             "근무유형별 근무기준등록.notion.md",
         )
         self.assertEqual(unmanaged.read_text(encoding="utf-8"), "manual")
+
+    def test_rich_text_accepts_explicit_null_link(self) -> None:
+        rich_text = [
+            {
+                "type": "text",
+                "plain_text": "고객 관리",
+                "text": {"content": "고객 관리", "link": None},
+            }
+        ]
+
+        self.assertEqual(_rich_text(rich_text), "고객 관리")
 
 
 if __name__ == "__main__":

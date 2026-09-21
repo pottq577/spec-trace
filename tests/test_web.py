@@ -8,8 +8,10 @@ from pathlib import Path
 
 from fakes import FakeNotion, menu_page, notion_id
 
+from spec_trace.config import SettingsService
 from spec_trace.errors import ValidationError
 from spec_trace.planning_documents import PlanningDocumentService
+from spec_trace.runtime import RuntimeService
 from spec_trace.web import WebApplication
 from spec_trace.workspace import Workspace
 
@@ -100,6 +102,39 @@ class WebApplicationTest(unittest.TestCase):
 
         with self.assertRaises(ValidationError):
             app.browse_directories(str(outside))
+
+    def test_export_all_documents_writes_collected_snapshots(self) -> None:
+        connection = self.workspace.database.connect()
+        try:
+            planning_document_id = connection.execute(
+                """
+                SELECT planning_document_id
+                FROM planning_documents
+                WHERE root_notion_page_id = ?
+                """,
+                (self.child_id,),
+            ).fetchone()["planning_document_id"]
+        finally:
+            connection.close()
+
+        RuntimeService(
+            self.workspace,
+            self.fake,
+            sleeper=lambda _: None,
+        ).collect_document(planning_document_id)
+        export_root = Path(self.temp.name) / "exports"
+        export_root.mkdir()
+        SettingsService(self.workspace).set_export_root(str(export_root))
+
+        result = WebApplication(
+            self.workspace,
+            notion_factory=lambda: self.fake,
+        ).export_all_documents()
+
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["exported"], 1)
+        self.assertEqual(result["failed"], 0)
+        self.assertTrue(Path(result["exports"][0]["path"]).is_file())
 
     def test_cycle_runs_in_background_and_reuses_running_job(self) -> None:
         started = threading.Event()

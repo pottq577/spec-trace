@@ -104,14 +104,19 @@ button.mini { padding: 6px 9px; font-size: 12px; white-space: nowrap; }
       <div id="cycleStatus" class="status"></div>
     </section>
     <section class="card">
-      <h2>로컬 문서 저장 위치</h2>
-      <label for="exportRoot">문서 저장 루트</label>
+      <h2>로컬 문서 저장</h2>
+      <p>수집된 Notion 원문을 Markdown으로 저장할 위치를 지정하고, 현재 Snapshot을 한 번에 내보냅니다.</p>
+      <label for="exportRoot">저장 위치</label>
       <div class="input-row">
         <input id="exportRoot" placeholder="/home/.../PEOPLO/docs/PRD_Notion">
         <button class="secondary" id="chooseExport" type="button">폴더 선택</button>
       </div>
       <div class="path" id="suggestion"></div>
-      <div class="actions"><button id="saveExport">저장</button></div>
+      <div class="path" id="savedExportRoot"></div>
+      <div class="actions">
+        <button class="secondary" id="saveExportRoot">저장 위치 적용</button>
+        <button id="exportAll">수집된 문서 전체 저장</button>
+      </div>
       <div id="exportStatus" class="status"></div>
     </section>
     <section class="card full">
@@ -176,8 +181,14 @@ async function load() {
   $('databaseId').value = source.database_id || '';
   $('dataSourceId').value = source.data_source_id || '';
   $('parentProperty').value = source.parent_property || '상위 항목';
-  $('exportRoot').value = settings.export_root || state.suggested_export_root || '';
-  $('suggestion').textContent = state.suggested_export_root ? `자동 제안: ${state.suggested_export_root}` : '';
+  const configuredExportRoot = settings.export_root || '';
+  $('exportRoot').value = configuredExportRoot || state.suggested_export_root || '';
+  $('suggestion').textContent = !configuredExportRoot && state.suggested_export_root
+    ? `자동 제안: ${state.suggested_export_root}`
+    : '';
+  $('savedExportRoot').textContent = configuredExportRoot
+    ? `현재 적용됨: ${configuredExportRoot}`
+    : '현재 적용된 저장 위치가 없습니다.';
   renderTree();
   await restoreCycleState();
 }
@@ -357,7 +368,7 @@ function nodeHtml(node) {
     ? '<span class="badge">AVAILABLE</span>'
     : '<span class="badge off">UNAVAILABLE</span>';
   const action = node.source_status === 'AVAILABLE'
-    ? `<div class="node-actions"><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">원문 가져오기</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">검토 문서</button></div>`
+    ? `<div class="node-actions"><button class="secondary mini" onclick="exportDocument('${node.planning_document_id}')">로컬에 저장</button><button class="secondary mini" onclick="openReviewDocuments('${node.planning_document_id}')">검토 문서</button></div>`
     : '';
   const children = (node.children || []).map(nodeHtml).join('');
   return `<li data-title="${escapeHtml(node.title.toLowerCase())}"><div class="node"><div class="node-main"><span>${escapeHtml(node.title)}</span>${badge}</div>${action}</div>${children ? `<ul>${children}</ul>` : ''}</li>`;
@@ -435,16 +446,46 @@ $('selectFolder').addEventListener('click', () => {
   if (!folderState?.path) return;
   $('exportRoot').value = folderState.path;
   $('folderDialog').close();
-  $('exportStatus').textContent = '폴더를 선택했습니다. 저장을 눌러 적용하세요.';
+  $('exportStatus').textContent = '폴더를 선택했습니다. 저장 위치 적용 또는 전체 저장을 눌러 반영하세요.';
 });
 $('search').addEventListener('input', renderTree);
 $('refresh').addEventListener('click', load);
-$('saveExport').addEventListener('click', async () => {
+async function applyExportRoot() {
+  const exportRoot = $('exportRoot').value.trim();
+  if (!exportRoot) throw new Error('저장 위치를 입력하거나 폴더를 선택하세요.');
+  const result = await api('/api/settings', {
+    method:'POST',
+    body:JSON.stringify({export_root:exportRoot, create_export_root:false}),
+  });
+  return result.settings.export_root;
+}
+$('saveExportRoot').addEventListener('click', async () => {
   try {
-    const result = await api('/api/settings', {method:'POST', body:JSON.stringify({export_root:$('exportRoot').value, create_export_root:false})});
-    $('exportStatus').textContent = `저장됨: ${result.settings.export_root}`;
+    const exportRoot = await applyExportRoot();
+    $('savedExportRoot').textContent = `현재 적용됨: ${exportRoot}`;
+    $('exportStatus').textContent = `저장 위치를 적용했습니다: ${exportRoot}`;
     await load();
   } catch (e) { $('exportStatus').textContent = e.message; }
+});
+$('exportAll').addEventListener('click', async () => {
+  const button = $('exportAll');
+  button.disabled = true;
+  try {
+    const exportRoot = await applyExportRoot();
+    $('savedExportRoot').textContent = `현재 적용됨: ${exportRoot}`;
+    $('exportStatus').textContent = '수집된 문서를 현재 Snapshot 기준으로 저장하는 중…';
+    const result = await api('/api/export-all', {method:'POST', body:'{}'});
+    const firstFailure = (result.failures || [])[0];
+    const failureDetail = firstFailure
+      ? `\n첫 실패: ${firstFailure.title || firstFailure.planning_document_id} · ${firstFailure.error}`
+      : '';
+    $('exportStatus').textContent = `전체 저장 완료: ${result.exported}/${result.total}개 · 실패 ${result.failed}개\n저장 위치: ${result.root}${failureDetail}`;
+    await load();
+  } catch (e) {
+    $('exportStatus').textContent = `전체 저장 실패: ${e.message}`;
+  } finally {
+    button.disabled = false;
+  }
 });
 $('saveSource').addEventListener('click', async () => {
   try {
@@ -676,6 +717,7 @@ class WebApplication:
         document_id = str(planning_document_id or "").strip()
         if not document_id:
             raise ValidationError("planning_document_id is required")
+        logger.info("document export started document=%s", document_id)
         notion = self.notion_factory()
         with WorkspaceLock(self.workspace):
             collection = RuntimeService(self.workspace, notion).collect_document(
@@ -694,7 +736,84 @@ class WebApplication:
                     message += f": {collection['failure_detail']}"
                 raise ValidationError(message)
             exported = SourceExportService(self.workspace).export(document_id)
+        logger.info(
+            "document export completed document=%s path=%s pages=%s",
+            document_id,
+            exported["path"],
+            exported["pages"],
+        )
         return {"collection": collection, "export": exported}
+
+    def export_all_documents(self) -> dict[str, Any]:
+        root = self.settings.resolve_export_root()
+        connection = self.workspace.database.connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT planning_document_id, title
+                FROM planning_documents
+                WHERE current_snapshot_id IS NOT NULL
+                ORDER BY title, planning_document_id
+                """
+            ).fetchall()
+        finally:
+            connection.close()
+
+        export_service = SourceExportService(self.workspace)
+        exports: list[dict[str, Any]] = []
+        failures: list[dict[str, str]] = []
+        logger.info("bulk export started root=%s documents=%d", root, len(rows))
+        with WorkspaceLock(self.workspace):
+            for row in rows:
+                document_id = row["planning_document_id"]
+                title = row["title"]
+                try:
+                    exported = export_service.export(document_id, output_root=root)
+                except SpecTraceError as exc:
+                    logger.warning(
+                        "bulk export failed document=%s title=%r error=%s",
+                        document_id,
+                        title,
+                        exc,
+                    )
+                    failures.append(
+                        {
+                            "planning_document_id": document_id,
+                            "title": title,
+                            "error": str(exc),
+                        }
+                    )
+                    continue
+                except Exception as exc:
+                    logger.exception(
+                        "bulk export failed with unexpected error document=%s title=%r",
+                        document_id,
+                        title,
+                    )
+                    failures.append(
+                        {
+                            "planning_document_id": document_id,
+                            "title": title,
+                            "error": f"internal error: {type(exc).__name__}",
+                        }
+                    )
+                    continue
+                exports.append(exported)
+
+        logger.info(
+            "bulk export completed root=%s exported=%d failed=%d",
+            root,
+            len(exports),
+            len(failures),
+        )
+        return {
+            "root": str(root),
+            "total": len(rows),
+            "exported": len(exports),
+            "failed": len(failures),
+            "exports": exports,
+            "failures": failures,
+        }
 
     def local_documents(self, planning_document_id: str) -> dict[str, Any]:
         document_id = str(planning_document_id or "").strip()
@@ -812,6 +931,9 @@ class RequestHandler(BaseHTTPRequestHandler):
                     payload.get("planning_document_id", "")
                 )
             )
+            return
+        if path == "/api/export-all":
+            self._handle_json(self.app.export_all_documents)
             return
         if path == "/api/local-documents":
             payload = self._read_json()
