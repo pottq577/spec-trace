@@ -62,7 +62,8 @@ class SourceSyncTest(unittest.TestCase):
             rows = connection.execute(
                 """
                 SELECT root_notion_page_id, title, notion_data_source_id,
-                       menu_parent_notion_page_id, source_status
+                       menu_parent_notion_page_id, source_status,
+                       source_last_edited_time
                 FROM planning_documents
                 ORDER BY root_notion_page_id
                 """
@@ -75,6 +76,10 @@ class SourceSyncTest(unittest.TestCase):
         self.assertEqual(rows[1]["menu_parent_notion_page_id"], self.root_id)
         self.assertEqual(rows[1]["notion_data_source_id"], self.data_source_id)
         self.assertEqual(rows[1]["source_status"], "AVAILABLE")
+        self.assertEqual(
+            rows[1]["source_last_edited_time"],
+            "2026-09-18T00:00:00.000Z",
+        )
 
     def test_sync_updates_metadata_and_marks_missing_rows_unavailable(self) -> None:
         first = self.service.sync_data_source(

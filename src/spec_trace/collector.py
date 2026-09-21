@@ -78,8 +78,7 @@ class SourceCollector:
         try:
             excluded = self._system_page_ids(planning_document_id)
             first = self._capture_tree(document.root_notion_page_id, excluded)
-            second = self._capture_tree(document.root_notion_page_id, excluded)
-            if first.stability_signature() != second.stability_signature():
+            if not self._tree_is_stable(first):
                 self._finish_run(
                     run_id,
                     "SOURCE_UNSTABLE",
@@ -139,6 +138,18 @@ class SourceCollector:
             normalize_notion_id(root_page_id), None, "ROOT", excluded, pages
         )
         return CaptureTree(pages)
+
+    def _tree_is_stable(self, tree: CaptureTree) -> bool:
+        for captured in tree.pages.values():
+            current = self.notion.retrieve_page(captured.notion_page_id)
+            if current.get("archived") or current.get("in_trash"):
+                return False
+            if (
+                str(current.get("last_edited_time") or "")
+                != captured.last_edited_time
+            ):
+                return False
+        return True
 
     def _capture_page(
         self,
@@ -201,6 +212,10 @@ class SourceCollector:
         self, planning_document_id: str, tree: CaptureTree, run_id: str
     ) -> CollectionResult:
         captured_at = utc_now()
+        root_page = next(
+            page for page in tree.pages.values() if page.role == "ROOT"
+        )
+        root_last_edited_time = root_page.last_edited_time
         prepared: dict[str, dict[str, Any]] = {}
         aggregate_parts: list[dict[str, Any]] = []
         for page in tree.pages.values():
@@ -245,13 +260,27 @@ class SourceCollector:
                     (baseline_id,),
                 ).fetchone()
             if baseline and baseline["aggregate_hash"] == aggregate_hash:
+                for page in tree.pages.values():
+                    connection.execute(
+                        """
+                        UPDATE source_pages
+                        SET last_collected_notion_edited_time = ?
+                        WHERE planning_document_id = ? AND notion_page_id = ?
+                        """,
+                        (
+                            page.last_edited_time,
+                            planning_document_id,
+                            page.notion_page_id,
+                        ),
+                    )
                 connection.execute(
                     """
                     UPDATE planning_documents
-                    SET source_status = 'AVAILABLE', last_collected_at = ?, attention_required = 0
+                    SET source_status = 'AVAILABLE', last_collected_at = ?,
+                        attention_required = 0, source_last_edited_time = ?
                     WHERE planning_document_id = ?
                     """,
-                    (captured_at, planning_document_id),
+                    (captured_at, root_last_edited_time, planning_document_id),
                 )
                 connection.execute(
                     """
@@ -280,8 +309,9 @@ class SourceCollector:
                         """
                         INSERT INTO source_pages(
                             source_page_id, planning_document_id, notion_page_id,
-                            role, title, created_at
-                        ) VALUES (?, ?, ?, ?, ?, ?)
+                            role, title, last_collected_notion_edited_time,
+                            created_at
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?)
                         """,
                         (
                             source_page_id,
@@ -289,6 +319,7 @@ class SourceCollector:
                             page_id,
                             page.role,
                             page.title,
+                            page.last_edited_time,
                             captured_at,
                         ),
                     )
@@ -340,10 +371,17 @@ class SourceCollector:
                 connection.execute(
                     """
                     UPDATE source_pages
-                    SET current_parent_source_page_id = ?, role = ?, title = ?
+                    SET current_parent_source_page_id = ?, role = ?, title = ?,
+                        last_collected_notion_edited_time = ?
                     WHERE source_page_id = ?
                     """,
-                    (parent_source_page_id, page.role, page.title, source_page_id),
+                    (
+                        parent_source_page_id,
+                        page.role,
+                        page.title,
+                        page.last_edited_time,
+                        source_page_id,
+                    ),
                 )
 
             snapshot_id = new_id()
@@ -411,10 +449,11 @@ class SourceCollector:
                 """
                 UPDATE planning_documents
                 SET current_snapshot_id = ?, source_status = 'AVAILABLE',
-                    last_collected_at = ?, attention_required = 0
+                    last_collected_at = ?, attention_required = 0,
+                    source_last_edited_time = ?
                 WHERE planning_document_id = ?
                 """,
-                (snapshot_id, captured_at, planning_document_id),
+                (snapshot_id, captured_at, root_last_edited_time, planning_document_id),
             )
             change_set_id = None
             if baseline_id:

@@ -106,6 +106,83 @@ class RuntimeServiceTest(unittest.TestCase):
         self.assertEqual(source.database_id, self.database_id)
         self.assertEqual(source.data_source_id, self.data_source_id)
 
+    def test_collect_all_skips_unchanged_snapshot_in_incremental_mode(self) -> None:
+        service = RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        )
+        first = service.collect_document(self.document.planning_document_id)
+        self.assertEqual(first["status"], "SNAPSHOT_CREATED")
+
+        self.fake.root_retrieve_count = 0
+        result = service.collect_all(incremental=True)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["status"], "SKIPPED_UNCHANGED")
+        self.assertEqual(result[0]["attempts"], 0)
+        self.assertEqual(self.fake.root_retrieve_count, 0)
+
+    def test_incremental_collection_bootstraps_freshness_from_snapshot(self) -> None:
+        service = RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        )
+        service.collect_document(self.document.planning_document_id)
+        with self.workspace.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE source_pages
+                SET last_collected_notion_edited_time = NULL
+                WHERE planning_document_id = ?
+                """,
+                (self.document.planning_document_id,),
+            )
+
+        self.fake.root_retrieve_count = 0
+        result = service.collect_all(incremental=True)
+
+        self.assertEqual(result[0]["status"], "SKIPPED_UNCHANGED")
+        self.assertEqual(self.fake.root_retrieve_count, 0)
+        connection = self.workspace.database.connect()
+        try:
+            row = connection.execute(
+                """
+                SELECT last_collected_notion_edited_time
+                FROM source_pages
+                WHERE planning_document_id = ? AND role = 'ROOT'
+                """,
+                (self.document.planning_document_id,),
+            ).fetchone()
+        finally:
+            connection.close()
+        self.assertEqual(
+            row["last_collected_notion_edited_time"],
+            "2026-09-18T00:00:00.000Z",
+        )
+
+    def test_incremental_collection_collects_changed_root(self) -> None:
+        service = RuntimeService(
+            self.workspace, self.fake, sleeper=lambda _: None
+        )
+        service.collect_document(self.document.planning_document_id)
+        edited = "2026-09-18T02:00:00.000Z"
+        self.fake.pages[self.root_id]["last_edited_time"] = edited
+        self.fake.children[self.root_id][0] = paragraph(
+            notion_id(5001), "주 35시간"
+        )
+        with self.workspace.database.transaction() as connection:
+            connection.execute(
+                """
+                UPDATE planning_documents
+                SET source_last_edited_time = ?
+                WHERE planning_document_id = ?
+                """,
+                (edited, self.document.planning_document_id),
+            )
+
+        result = service.collect_all(incremental=True)
+
+        self.assertEqual(result[0]["status"], "SNAPSHOT_CREATED")
+        self.assertEqual(result[0]["attempts"], 1)
+
     def test_run_cycle_reconciles_projection_before_collection(self) -> None:
         PendingOperationService(self.workspace.database).schedule(
             "PROJECT_DOCUMENT",

@@ -8,7 +8,12 @@ from typing import Any
 
 from .collector import SourceCollector
 from .config import NotionSourceSettings, SettingsService
-from .errors import ResourceNotFound, SpecTraceError, ValidationError
+from .errors import (
+    ExternalServiceError,
+    ResourceNotFound,
+    SpecTraceError,
+    ValidationError,
+)
 from .notion import NotionPort
 from .planning_documents import PlanningDocumentService
 from .projection import ProjectionService
@@ -253,12 +258,14 @@ class RuntimeService:
         )
         return {**result.__dict__, "attempts": attempts}
 
-    def collect_all(self) -> list[dict[str, Any]]:
+    def collect_all(self, *, incremental: bool = False) -> list[dict[str, Any]]:
         connection = self.database.connect()
         try:
             rows = connection.execute(
                 """
-                SELECT planning_document_id FROM planning_documents
+                SELECT planning_document_id, root_notion_page_id,
+                       current_snapshot_id, source_last_edited_time
+                FROM planning_documents
                 WHERE source_status = 'AVAILABLE'
                 ORDER BY created_at, planning_document_id
                 """
@@ -267,7 +274,11 @@ class RuntimeService:
             connection.close()
 
         total = len(rows)
-        logger.info("collection batch start total=%d", total)
+        logger.info(
+            "collection batch start total=%d mode=%s",
+            total,
+            "incremental" if incremental else "full",
+        )
         results: list[dict[str, Any]] = []
         for index, row in enumerate(rows, start=1):
             document_id = row["planning_document_id"]
@@ -277,9 +288,110 @@ class RuntimeService:
                 total,
                 document_id,
             )
+            if incremental and self._snapshot_matches_source(row):
+                logger.info(
+                    "collection skipped unchanged document=%s snapshot=%s",
+                    document_id,
+                    row["current_snapshot_id"],
+                )
+                results.append(
+                    {
+                        "status": "SKIPPED_UNCHANGED",
+                        "planning_document_id": document_id,
+                        "snapshot_id": row["current_snapshot_id"],
+                        "change_set_id": None,
+                        "failure_code": None,
+                        "failure_detail": None,
+                        "attempts": 0,
+                    }
+                )
+                continue
             results.append(self.collect_document(document_id))
         logger.info("collection batch complete total=%d", total)
         return results
+
+    def _snapshot_matches_source(self, document) -> bool:
+        snapshot_id = document["current_snapshot_id"]
+        current_root_edited = str(document["source_last_edited_time"] or "")
+        if not snapshot_id or not current_root_edited:
+            return False
+
+        connection = self.database.connect()
+        try:
+            rows = connection.execute(
+                """
+                SELECT psp.notion_page_id, psp.role, sp.source_page_id,
+                       sp.last_collected_notion_edited_time,
+                       sps.raw_content_ref
+                FROM planning_snapshot_pages psp
+                JOIN source_pages sp ON sp.source_page_id = psp.source_page_id
+                JOIN source_page_snapshots sps
+                  ON sps.source_page_snapshot_id = psp.source_page_snapshot_id
+                WHERE psp.planning_document_snapshot_id = ?
+                ORDER BY psp.role DESC, psp.notion_page_id
+                """,
+                (snapshot_id,),
+            ).fetchall()
+        finally:
+            connection.close()
+        if not rows:
+            return False
+
+        root_seen = False
+        backfill: list[tuple[str, str]] = []
+        for row in rows:
+            baseline = str(row["last_collected_notion_edited_time"] or "")
+            if not baseline:
+                baseline = self._snapshot_edited_time(row["raw_content_ref"])
+                if not baseline:
+                    return False
+                backfill.append((baseline, row["source_page_id"]))
+
+            if row["role"] == "ROOT":
+                root_seen = True
+                if row["notion_page_id"] != document["root_notion_page_id"]:
+                    return False
+                if baseline != current_root_edited:
+                    return False
+                continue
+
+            try:
+                current = self.notion.retrieve_page(row["notion_page_id"])
+            except (ResourceNotFound, ExternalServiceError):
+                return False
+            if current.get("archived") or current.get("in_trash"):
+                return False
+            if str(current.get("last_edited_time") or "") != baseline:
+                return False
+
+        if not root_seen:
+            return False
+        if backfill:
+            with self.database.transaction() as connection:
+                connection.executemany(
+                    """
+                    UPDATE source_pages
+                    SET last_collected_notion_edited_time = ?
+                    WHERE source_page_id = ?
+                      AND last_collected_notion_edited_time IS NULL
+                    """,
+                    backfill,
+                )
+        return True
+
+    def _snapshot_edited_time(self, raw_content_ref: str | None) -> str:
+        if not raw_content_ref:
+            return ""
+        try:
+            payload = self.workspace.content_store.read_json(raw_content_ref)
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            return ""
+        if not isinstance(payload, dict):
+            return ""
+        page = payload.get("page") or {}
+        if not isinstance(page, dict):
+            return ""
+        return str(page.get("last_edited_time") or "")
 
     def reconcile_pending(self) -> list[dict[str, Any]]:
         connection = self.database.connect()
@@ -416,8 +528,12 @@ class RuntimeService:
         recovery = self.reconcile_pending()
         logger.info("cycle phase=recovery complete operations=%d", len(recovery))
 
-        logger.info("cycle phase=collect_all start")
-        collections = self.collect_all()
+        incremental = source_sync.get("status") == "COMPLETED"
+        logger.info(
+            "cycle phase=collect_all start incremental=%s",
+            incremental,
+        )
+        collections = self.collect_all(incremental=incremental)
         logger.info(
             "cycle phase=collect_all complete collections=%d",
             len(collections),

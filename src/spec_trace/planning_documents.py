@@ -39,6 +39,7 @@ class PlanningDocumentService:
         title = extract_page_title(page)
         if not title:
             raise ValidationError("Notion root page has no title")
+        source_last_edited_time = str(page.get("last_edited_time") or "")
         now = utc_now()
         with self.database.transaction() as connection:
             row = connection.execute(
@@ -54,20 +55,29 @@ class PlanningDocumentService:
                     """
                     INSERT INTO planning_documents(
                         planning_document_id, notion_database_id,
-                        root_notion_page_id, title, source_status, created_at
-                    ) VALUES (?, ?, ?, ?, 'AVAILABLE', ?)
+                        root_notion_page_id, title, source_status, created_at,
+                        source_last_edited_time
+                    ) VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?)
                     """,
-                    (document_id, database_id, page_id, title, now),
+                    (
+                        document_id,
+                        database_id,
+                        page_id,
+                        title,
+                        now,
+                        source_last_edited_time,
+                    ),
                 )
             else:
                 document_id = row["planning_document_id"]
                 connection.execute(
                     """
                     UPDATE planning_documents
-                    SET title = ?, source_status = 'AVAILABLE'
+                    SET title = ?, source_status = 'AVAILABLE',
+                        source_last_edited_time = ?
                     WHERE planning_document_id = ?
                     """,
-                    (title, document_id),
+                    (title, source_last_edited_time, document_id),
                 )
         return self.get(document_id)
 
@@ -84,7 +94,7 @@ class PlanningDocumentService:
         self._validate_data_source(database, normalized_data_source_id)
 
         pages = self.notion.query_data_source(normalized_data_source_id)
-        candidates: list[tuple[str, str, str | None]] = []
+        candidates: list[tuple[str, str, str | None, str]] = []
         seen_page_ids: set[str] = set()
         skipped = 0
 
@@ -108,7 +118,14 @@ class PlanningDocumentService:
             if not title:
                 raise ValidationError(f"Notion page has no title: {page_id}")
             parent_page_id = self._menu_parent(page, parent_property)
-            candidates.append((page_id, title, parent_page_id))
+            candidates.append(
+                (
+                    page_id,
+                    title,
+                    parent_page_id,
+                    str(page.get("last_edited_time") or ""),
+                )
+            )
 
         created = 0
         updated = 0
@@ -127,7 +144,7 @@ class PlanningDocumentService:
             ).fetchall()
 
             active_page_ids: set[str] = set()
-            for page_id, title, parent_page_id in candidates:
+            for page_id, title, parent_page_id, source_last_edited_time in candidates:
                 active_page_ids.add(page_id)
                 row = connection.execute(
                     """
@@ -144,8 +161,9 @@ class PlanningDocumentService:
                             planning_document_id, notion_database_id,
                             root_notion_page_id, title, source_status,
                             created_at, notion_data_source_id,
-                            menu_parent_notion_page_id
-                        ) VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?, ?)
+                            menu_parent_notion_page_id,
+                            source_last_edited_time
+                        ) VALUES (?, ?, ?, ?, 'AVAILABLE', ?, ?, ?, ?)
                         """,
                         (
                             new_id(),
@@ -155,6 +173,7 @@ class PlanningDocumentService:
                             now,
                             normalized_data_source_id,
                             parent_page_id,
+                            source_last_edited_time,
                         ),
                     )
                     created += 1
@@ -165,19 +184,22 @@ class PlanningDocumentService:
                     or row["source_status"] != "AVAILABLE"
                     or row["notion_data_source_id"] != normalized_data_source_id
                     or row["menu_parent_notion_page_id"] != parent_page_id
+                    or row["source_last_edited_time"] != source_last_edited_time
                 )
                 connection.execute(
                     """
                     UPDATE planning_documents
                     SET title = ?, source_status = 'AVAILABLE',
                         notion_data_source_id = ?,
-                        menu_parent_notion_page_id = ?
+                        menu_parent_notion_page_id = ?,
+                        source_last_edited_time = ?
                     WHERE planning_document_id = ?
                     """,
                     (
                         title,
                         normalized_data_source_id,
                         parent_page_id,
+                        source_last_edited_time,
                         row["planning_document_id"],
                     ),
                 )

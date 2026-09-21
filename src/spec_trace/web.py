@@ -173,9 +173,11 @@ function renderCycleResult(result) {
   const reviewResponses = result.review_responses || [];
   const failedStatuses = new Set(['SOURCE_UNAVAILABLE', 'SOURCE_UNSTABLE', 'COLLECTION_FAILED']);
   const failures = collections.filter((item) => failedStatuses.has(item.status));
+  const skipped = collections.filter((item) => item.status === 'SKIPPED_UNCHANGED');
+  const collected = collections.length - failures.length - skipped.length;
   const firstFailure = failures.find((item) => item.failure_detail);
   const failureDetail = firstFailure ? `\n첫 실패: ${firstFailure.failure_detail}` : '';
-  $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 수집 성공 ${collections.length - failures.length}개 · 실패 ${failures.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건${failureDetail}`;
+  $('cycleStatus').textContent = `메뉴 ${sync.active_pages ?? 0}개 · 확인 ${collections.length}개 · 변경 없음 ${skipped.length}개 · 수집 성공 ${collected}개 · 실패 ${failures.length}개 · 구조화 답변 ${answers.reduce((n,x)=>n+(x.answers_collected || 0),0)}건 · 문서 답변 ${reviewResponses.length}건${failureDetail}`;
 }
 
 async function restoreCycleState() {
